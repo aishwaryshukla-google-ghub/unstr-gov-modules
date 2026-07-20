@@ -1,0 +1,11 @@
+{
+  "description": "Out-of-the-box (OOB) Data Redaction Logic Use Case for NYL Sandbox",
+  "infoTypes": [
+    { "name": "STREET_ADDRESS" },
+    { "name": "EMAIL_ADDRESS" },
+    { "name": "PHONE_NUMBER" },
+    { "name": "PERSON_NAME" }
+  ],
+  "transformationStrategy": "REPLACE_WITH_INFO_TYPE",
+  "expectedBehavior": "When text contains any of the above infoTypes, the DLP API will replace the sensitive string with the tag (e.g., '[EMAIL_ADDRESS]')."
+}

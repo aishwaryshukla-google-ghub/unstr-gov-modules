@@ -1,0 +1,5 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/nyl-cloudrun-repo/nyl-flask-app:latest', '.']
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', '${_REGION}-docker.pkg.dev/${_PROJECT_ID}/nyl-cloudrun-repo/nyl-flask-app:latest']

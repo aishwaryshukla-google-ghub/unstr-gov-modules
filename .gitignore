@@ -1,0 +1,12 @@
+# Exclude local execution log
+execution_log.md
+
+# Terraform local state and binaries
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# System & Editor files
+.DS_Store
+*.log
