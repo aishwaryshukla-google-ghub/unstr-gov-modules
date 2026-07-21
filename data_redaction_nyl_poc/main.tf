@@ -39,9 +39,15 @@ module "nyl_flask_app_cloud_run" {
     ]
   }
 
+  service_config = {
+    ingress = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+    scaling = {
+      min_instance_count = 1
+    }
+  }
+
   deletion_protection = false
   labels              = var.labels
-  ingress             = "internal"
 }
 
 # 3. BigQuery Remote Connection
