@@ -40,7 +40,7 @@ module "nyl_flask_app_cloud_run" {
   }
 
   service_config = {
-    ingress = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+    ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCING"
     scaling = {
       min_instance_count = 1
     }
