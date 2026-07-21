@@ -13,5 +13,6 @@ module "data_redaction_nyl_poc" {
   project_id            = "nyl-pr-dbx-data-dev-01"
   region                = "us-east4"
   service_account_email = var.deploy_sa_email
+  dataset_id            = "test_dtst" # Uses client's existing dataset
 }
 ```

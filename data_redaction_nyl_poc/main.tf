@@ -47,17 +47,9 @@ resource "google_bigquery_connection" "remote_connection" {
   cloud_resource {}
 }
 
-# 4. BigQuery Dataset
-resource "google_bigquery_dataset" "dataset" {
-  dataset_id = "nyl_sandbox_dataset"
-  location   = var.region
-  project    = var.project_id
-  labels     = var.labels
-}
-
-# 5. BigQuery Remote Function (Routine)
+# 4. BigQuery Remote Function (Routine)
 resource "google_bigquery_routine" "remote_function" {
-  dataset_id      = google_bigquery_dataset.dataset.dataset_id
+  dataset_id      = var.dataset_id
   routine_id      = "sample_remote_function"
   routine_type    = "SCALAR_FUNCTION"
   project         = var.project_id

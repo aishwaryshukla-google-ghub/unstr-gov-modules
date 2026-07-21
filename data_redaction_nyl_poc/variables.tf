@@ -20,6 +20,12 @@ variable "service_account_email" {
   type        = string
 }
 
+variable "dataset_id" {
+  description = "The BigQuery dataset ID to deploy the remote function into"
+  type        = string
+  default     = "test_dtst"
+}
+
 variable "labels" {
   description = "Labels to apply to resources"
   type        = map(string)
