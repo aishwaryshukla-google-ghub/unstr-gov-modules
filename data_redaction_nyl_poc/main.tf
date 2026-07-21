@@ -39,6 +39,7 @@ module "nyl_flask_app_cloud_run" {
   }
 
   deletion_protection = false
+  labels              = var.labels
 }
 
 # 3. BigQuery Remote Connection
