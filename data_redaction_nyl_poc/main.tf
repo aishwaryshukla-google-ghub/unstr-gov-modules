@@ -67,7 +67,7 @@ resource "google_bigquery_routine" "remote_function" {
   }
   
   remote_function_options {
-    endpoint   = module.nyl_flask_app_cloud_run.url
+    endpoint   = module.nyl_flask_app_cloud_run.service_uri
     connection = google_bigquery_connection.remote_connection.name
   }
 }

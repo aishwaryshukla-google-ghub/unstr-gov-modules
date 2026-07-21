@@ -1,6 +1,6 @@
 output "cloud_run_service_url" {
   description = "The URL of the deployed Cloud Run service"
-  value       = google_cloud_run_v2_service.app_service.uri
+  value       = module.nyl_flask_app_cloud_run.service_uri
 }
 
 output "bq_connection_service_account" {
