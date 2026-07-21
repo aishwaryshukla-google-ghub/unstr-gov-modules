@@ -9,29 +9,8 @@ resource "google_artifact_registry_repository" "repo" {
   labels        = var.labels
 }
 
-# 2. Automated Container Build & Push via GCP Cloud Build
-resource "null_resource" "build_and_push_image" {
-  depends_on = [google_artifact_registry_repository.repo]
-
-  triggers = {
-    app_hash = sha256(join("", [for f in fileset("${path.module}/app", "**") : filesha256("${path.module}/app/${f}")]))
-  }
-
-  provisioner "local-exec" {
-    command = <<EOT
-      gcloud builds submit \
-        --project=${var.project_id} \
-        --config=${path.module}/app/cloudbuild.yaml \
-        --substitutions=_REGION=${var.region},_PROJECT_ID=${var.project_id} \
-        ${path.module}/app
-    EOT
-  }
-}
-
-# 3. Deploy Cloud Run Service via NYL approved module
+# 2. Deploy Cloud Run Service via NYL approved module
 module "nyl_flask_app_cloud_run" {
-  depends_on = [null_resource.build_and_push_image]
-
   source     = "app.harness.io/fA6kGr7FTEG47VMeTwdA4Q/nyl-gcp-cloud-run/nyl"
   version    = "1.0.3"
   project_id = var.project_id
@@ -45,7 +24,7 @@ module "nyl_flask_app_cloud_run" {
 
   containers = {
     nyl-flask-app = {
-      image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.repo.repository_id}/nyl-flask-app:latest"
+      image = "us-docker.pkg.dev/cloudrun/container/hello"
       env = {
         INSPECT_TEMPLATE_NAME    = google_data_loss_prevention_inspect_template.nyl_inspect_template.id
         DEIDENTIFY_TEMPLATE_NAME = google_data_loss_prevention_deidentify_template.nyl_deidentify_template.id
@@ -61,7 +40,7 @@ module "nyl_flask_app_cloud_run" {
   }
 
   service_config = {
-    ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCING"
+    ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
     scaling = {
       min_instance_count = 1
     }
