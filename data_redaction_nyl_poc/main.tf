@@ -1,6 +1,7 @@
 
 # 1. Artifact Registry to store the image
 resource "google_artifact_registry_repository" "repo" {
+  project       = var.project_id
   location      = var.region
   repository_id = "nyl-cloudrun-repo"
   description   = "Docker repository for NYL sample app"
@@ -10,6 +11,7 @@ resource "google_artifact_registry_repository" "repo" {
 
 # 2. Deploy Cloud Run Service
 resource "google_cloud_run_v2_service" "app_service" {
+  project  = var.project_id
   name     = "nyl-sample-flask-app"
   location = var.region
   ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
