@@ -9,41 +9,33 @@ resource "google_artifact_registry_repository" "repo" {
   labels        = var.labels
 }
 
-# 2. Deploy Cloud Run Service
-resource "google_cloud_run_v2_service" "app_service" {
-  project  = var.project_id
-  name     = "nyl-sample-flask-app"
-  location = var.region
-  ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
-  deletion_protection = false
-  labels   = var.labels
+# 2. Deploy Cloud Run Service via NYL approved module
+module "nyl_flask_app_cloud_run" {
+  source     = "app.harness.io/fA6kGr7FTEG47VMeTwdA4Q/nyl-gcp-cloud-run/nyl"
+  version    = "1.0.3"
+  project_id = var.project_id
+  name       = "nyl-sample-flask-app"
+  region     = var.region
 
-  template {
-    service_account = var.service_account_email
-    labels          = var.labels
+  service_account = var.service_account_email
 
-    scaling {
-      min_instance_count = 1
-    }
-
-    containers {
+  containers = {
+    nyl-flask-app = {
       image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.repo.repository_id}/nyl-flask-app:latest"
-      
-      ports {
-        container_port = 8080
-      }
-      
-      env {
-        name  = "INSPECT_TEMPLATE_NAME"
-        value = google_data_loss_prevention_inspect_template.nyl_inspect_template.id
-      }
-      
-      env {
-        name  = "DEIDENTIFY_TEMPLATE_NAME"
-        value = google_data_loss_prevention_deidentify_template.nyl_deidentify_template.id
+      env = {
+        INSPECT_TEMPLATE_NAME    = google_data_loss_prevention_inspect_template.nyl_inspect_template.id
+        DEIDENTIFY_TEMPLATE_NAME = google_data_loss_prevention_deidentify_template.nyl_deidentify_template.id
       }
     }
   }
+
+  iam = {
+    "roles/run.invoker" = [
+      "serviceAccount:${google_bigquery_connection.remote_connection.cloud_resource[0].service_account_id}"
+    ]
+  }
+
+  deletion_protection = false
 }
 
 # 3. BigQuery Remote Connection
@@ -53,15 +45,6 @@ resource "google_bigquery_connection" "remote_connection" {
   project       = var.project_id
   
   cloud_resource {}
-}
-
-# Grant BigQuery Connection access to invoke Cloud Run
-resource "google_cloud_run_v2_service_iam_member" "invoker" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.app_service.name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_bigquery_connection.remote_connection.cloud_resource[0].service_account_id}"
 }
 
 # 4. BigQuery Dataset
@@ -89,7 +72,7 @@ resource "google_bigquery_routine" "remote_function" {
   }
   
   remote_function_options {
-    endpoint   = google_cloud_run_v2_service.app_service.uri
+    endpoint   = module.nyl_flask_app_cloud_run.url
     connection = google_bigquery_connection.remote_connection.name
   }
 }
