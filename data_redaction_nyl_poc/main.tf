@@ -28,6 +28,7 @@ module "nyl_flask_app_cloud_run" {
       env = {
         INSPECT_TEMPLATE_NAME    = google_data_loss_prevention_inspect_template.nyl_inspect_template.id
         DEIDENTIFY_TEMPLATE_NAME = google_data_loss_prevention_deidentify_template.nyl_deidentify_template.id
+        DLP_LOCATION             = var.region
       }
     }
   }
