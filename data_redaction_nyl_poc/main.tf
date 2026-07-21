@@ -17,7 +17,7 @@ module "nyl_flask_app_cloud_run" {
   name       = "nyl-sample-flask-app"
   region     = var.region
 
-  service_account = var.service_account_email
+  service_account_email = var.service_account_email
 
   containers = {
     nyl-flask-app = {
