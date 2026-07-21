@@ -41,6 +41,7 @@ module "nyl_flask_app_cloud_run" {
 
   deletion_protection = false
   labels              = var.labels
+  ingress             = "internal"
 }
 
 # 3. BigQuery Remote Connection
