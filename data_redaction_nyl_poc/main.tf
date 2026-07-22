@@ -98,3 +98,12 @@ resource "google_project_iam_member" "service_usage" {
   role    = "roles/serviceusage.serviceUsageConsumer"
   member  = "serviceAccount:${var.service_account_email}"
 }
+
+# Clean up stuck state entry without calling provider
+removed {
+  from = null_resource.build_and_push_image
+
+  lifecycle {
+    destroy = false
+  }
+}
