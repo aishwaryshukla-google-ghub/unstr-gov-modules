@@ -1,0 +1,65 @@
+# =============================================================================
+# CROSS-CLOUD LAKEHOUSE SOLUTION - PRODUCTION CONFIGURATION TEMPLATE
+# Copy this file to terraform.tfvars and replace placeholder values with exact 
+# items received from your GCP Platform Team and AWS Infrastructure Team.
+# =============================================================================
+
+project_id = "my-enterprise-data-project-01"
+region     = "us-east4" # Must closely match AWS region (e.g., us-east4 for AWS us-east-1)
+zone       = "us-east4-a"
+
+# -----------------------------------------------------------------------------
+# 1. PLATFORM TEAM PARAMETERS (Network IDs where Partner CCI terminates)
+# -----------------------------------------------------------------------------
+vpc_network = "projects/my-transit-vpc-project/global/networks/vpc-prod-crosscloud"
+
+# A. EXISTING SUBNETWORK OPTION (Specify if subnetwork already exists in VPC):
+# subnetwork = "projects/my-transit-vpc-project/regions/us-east4/subnetworks/subnet-workload-useast4"
+
+# B. NET-NEW SUBNETWORKS OPTION (Specify CIDRs if subnets do NOT exist yet in transit VPC):
+workload_subnet_cidr = "10.10.16.0/20" # Net-new PRIVATE subnetwork for forwarding rule VIP
+proxy_subnet_cidr    = "10.10.32.0/23" # Net-new REGIONAL_MANAGED_PROXY subnet for Envoy proxies
+
+# C. STATIC IP ALLOCATION OPTION:
+create_static_ip   = true # Reserves a static internal IP address resource (google_compute_address)
+forwarding_rule_ip = null # Leave null for dynamic static allocation, or supply specific IP (e.g. "10.10.16.2")
+
+# -----------------------------------------------------------------------------
+# 2. AWS INFRASTRUCTURE TEAM PARAMETERS (S3 PrivateLink ENI target IPs)
+# -----------------------------------------------------------------------------
+aws_s3_private_endpoints = {
+  "aws-s3-eni-subnet-a" = {
+    ip_address = "10.200.15.42" # Private IP of AWS com.amazonaws.<region>.s3 Interface Endpoint
+    port       = 443
+  }
+  "aws-s3-eni-subnet-b" = {
+    ip_address = "10.200.16.89" # Private IP of secondary AWS AZ ENI
+    port       = 443
+  }
+}
+
+# -----------------------------------------------------------------------------
+# 3. DATABRICKS UNITY CATALOG FEDERATION PARAMETERS
+# -----------------------------------------------------------------------------
+federated_catalogs = {
+  "prod-sales-unity-catalog" = {
+    catalog_name                     = "databricks_sales_prod_catalog"
+    unity_instance_name              = "my-company.cloud.databricks.com"
+    unity_catalog_name               = "sales_lakehouse_catalog"
+    refresh_interval                 = "300s"
+    service_principal_application_id = "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d"
+    # secret_name                    = "projects/my-enterprise-data-project-01/locations/us-east4/secrets/databricks-oauth-token"
+  }
+}
+
+# -----------------------------------------------------------------------------
+# 4. ENTERPRISE GOVERNANCE LABELS
+# -----------------------------------------------------------------------------
+labels = {
+  application_id      = "lakehouse-federation"
+  business_unit       = "data-platform"
+  environment         = "prod"
+  owner_team          = "analytics-engineering"
+  managed_by          = "terraform"
+  data_classification = "confidential"
+}
