@@ -9,6 +9,12 @@ variable "region" {
   default     = "us-east4"
 }
 
+variable "deploy_sa_email" {
+  description = "The Harness IACM deployment service account email automatically passed by Harness pipeline."
+  type        = string
+  default     = null
+}
+
 variable "omni_location" {
   description = "The BigQuery Omni location corresponding to your AWS S3 bucket region (e.g. aws-us-east-1, aws-us-west-2)."
   type        = string

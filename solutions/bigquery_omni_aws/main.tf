@@ -3,12 +3,21 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "7.39.0"
+      version = ">= 7.39.0, < 8.0.0"
+    }
+    google-beta = {
+      source  = "hashicorp/google-beta"
+      version = ">= 7.39.0, < 8.0.0"
     }
   }
 }
 
 provider "google" {
+  project = var.project_id
+  region  = var.region
+}
+
+provider "google-beta" {
   project = var.project_id
   region  = var.region
 }
@@ -61,7 +70,7 @@ resource "google_bigquery_table" "omni_external_table" {
       content {
         quote                 = try(each.value.csv_options.quote, "\"")
         allow_quoted_newlines = try(each.value.csv_options.allow_quoted_newlines, false)
-        skip_leading_rows     = try(each.value.csv_options.skip_leading_rows, 1)
+        skip_leading_rows     = try(each.value.skip_leading_rows, 1)
         field_delimiter       = try(each.value.csv_options.field_delimiter, ",")
       }
     }
