@@ -10,5 +10,5 @@ output "connection_name" {
 
 output "aws_identity_id" {
   description = "The GCP Service Account Identity ID generated for BigQuery Omni. MUST be added to your AWS IAM Role Trust Policy."
-  value       = try(google_bigquery_connection.aws_omni.aws[0].access_role[0].identity_id, null)
+  value       = try(google_bigquery_connection.aws_omni.aws[0].access_role[0].identity, null)
 }
