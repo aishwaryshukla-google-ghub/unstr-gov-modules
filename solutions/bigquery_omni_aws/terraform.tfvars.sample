@@ -1,0 +1,32 @@
+# =============================================================================
+# BIGQUERY OMNI (AWS S3) SOLUTION - CONFIGURATION TEMPLATE
+# Copy this file to terraform.tfvars and fill in your AWS IAM Role & S3 details.
+# =============================================================================
+
+project_id = "my-gcp-data-project-id"
+region     = "us-east4"
+
+# 1. BIGQUERY OMNI LOCATION
+# Omni region matching your AWS S3 bucket location (e.g. aws-us-east-1, aws-us-west-2)
+omni_location = "aws-us-east-1"
+
+# 2. AWS IAM ROLE ARN
+# AWS IAM Role created in AWS Account to allow BigQuery to read S3 buckets
+aws_iam_role_arn = "arn:aws:iam::123456789012:role/nyl-bq-omni-s3-read-role"
+
+# 3. BIGQUERY OMNI DATASET
+dataset_id   = "nyl_bq_omni_aws_s3_dataset"
+dataset_name = "NYL BigQuery Omni S3 Analytics Dataset"
+
+# 4. EXTERNAL TABLES DEFINITION OVER AWS S3 DATA
+external_tables = {}
+
+# 5. ENTERPRISE GOVERNANCE LABELS
+labels = {
+  application         = "bigquery-omni-aws"
+  business_unit       = "data-platform"
+  environment         = "prod"
+  owner_team          = "analytics-engineering"
+  managed_by          = "terraform"
+  data_classification = "confidential"
+}
