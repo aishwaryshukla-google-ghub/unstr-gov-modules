@@ -55,26 +55,26 @@ resource "google_bigquery_connection" "remote_connection" {
   connection_id = "nyl_remote_connection"
   location      = var.region
   project       = var.project_id
-  
+
   cloud_resource {}
 }
 
 # 4. BigQuery Remote Function (Routine)
 resource "google_bigquery_routine" "remote_function" {
-  dataset_id      = var.dataset_id
-  routine_id      = "sample_remote_function"
-  routine_type    = "SCALAR_FUNCTION"
-  project         = var.project_id
-  
+  dataset_id   = var.dataset_id
+  routine_id   = "sample_remote_function"
+  routine_type = "SCALAR_FUNCTION"
+  project      = var.project_id
+
   definition_body = ""
-  
+
   return_type = "{\"typeKind\" : \"STRING\"}"
-  
+
   arguments {
     name      = "input_text"
     data_type = "{\"typeKind\" : \"STRING\"}"
   }
-  
+
   remote_function_options {
     endpoint   = module.nyl_flask_app_cloud_run.service_uri
     connection = google_bigquery_connection.remote_connection.name

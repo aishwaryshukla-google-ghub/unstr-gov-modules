@@ -1,6 +1,6 @@
 resource "google_data_loss_prevention_inspect_template" "nyl_inspect_template" {
-  parent = "projects/${var.project_id}/locations/${var.region}"
-  description = "Inspect template for NYL OOB Redaction"
+  parent       = "projects/${var.project_id}/locations/${var.region}"
+  description  = "Inspect template for NYL OOB Redaction"
   display_name = "nyl_inspect_template"
 
   inspect_config {
@@ -20,8 +20,8 @@ resource "google_data_loss_prevention_inspect_template" "nyl_inspect_template" {
 }
 
 resource "google_data_loss_prevention_deidentify_template" "nyl_deidentify_template" {
-  parent = "projects/${var.project_id}/locations/${var.region}"
-  description = "De-identify template for NYL OOB Redaction"
+  parent       = "projects/${var.project_id}/locations/${var.region}"
+  description  = "De-identify template for NYL OOB Redaction"
   display_name = "nyl_deidentify_template"
 
   deidentify_config {

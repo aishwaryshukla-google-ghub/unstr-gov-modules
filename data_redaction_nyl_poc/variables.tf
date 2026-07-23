@@ -29,7 +29,7 @@ variable "dataset_id" {
 variable "labels" {
   description = "Labels to apply to resources"
   type        = map(string)
-  default     = {
+  default = {
     application_id      = "app-14378"
     environment         = "dev"
     business_unit       = "edm"
