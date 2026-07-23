@@ -80,7 +80,7 @@ module "region_health_check" {
   name        = "${var.bridge_name_prefix}-hc"
   region      = var.region
   description = "TCP Health Check for AWS S3 PrivateLink ENIs across Partner CCI"
-  
+
   tcp_health_check = {
     port         = 443
     proxy_header = "NONE"
