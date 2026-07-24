@@ -1,9 +1,6 @@
 import os
-import json
-from flask import Flask, request, jsonify
-import google.cloud.dlp
-
-app = Flask(__name__)
+import functions_framework
+import google.cloud.dlp_v2
 
 PROJECT_ID = os.environ.get('PROJECT_ID', 'mhanono-mysandbox')
 dlp = google.cloud.dlp_v2.DlpServiceClient(client_options={"quota_project_id": PROJECT_ID})
@@ -11,17 +8,17 @@ DLP_LOCATION = os.environ.get('DLP_LOCATION', 'global')
 INSPECT_TEMPLATE_NAME = os.environ.get('INSPECT_TEMPLATE_NAME')
 DEIDENTIFY_TEMPLATE_NAME = os.environ.get('DEIDENTIFY_TEMPLATE_NAME')
 
-@app.route('/', methods=['POST'])
-def handle_request():
+@functions_framework.http
+def handle_request(request):
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
         if not data or 'calls' not in data:
-            return jsonify({'errorMessage': 'Invalid payload, expected "calls" array.'}), 400
+            return {'errorMessage': 'Invalid payload, expected "calls" array.'}, 400
             
         calls = data.get('calls', [])
         
         if not INSPECT_TEMPLATE_NAME or not DEIDENTIFY_TEMPLATE_NAME:
-            return jsonify({'errorMessage': 'DLP templates not configured in environment.'}), 500
+            return {'errorMessage': 'DLP templates not configured in environment.'}, 500
 
         replies = []
         for call in calls:
@@ -43,11 +40,7 @@ def handle_request():
             
             replies.append(response.item.value)
             
-        return jsonify({'replies': replies})
+        return {'replies': replies}
     
     except Exception as e:
-        return jsonify({'errorMessage': str(e)}), 400
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port)
+        return {'errorMessage': str(e)}, 400
