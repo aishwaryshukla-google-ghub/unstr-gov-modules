@@ -7,23 +7,82 @@ project_id = "my-gcp-data-project-id"
 region     = "us-east4"
 
 # 1. BIGQUERY OMNI LOCATION
-# Omni region matching your AWS S3 bucket location (e.g. aws-us-east-1, aws-us-west-2)
 omni_location = "aws-us-east-1"
 
 # 2. AWS IAM ROLE ARN
-# AWS IAM Role created in AWS Account to allow BigQuery to read S3 buckets
-aws_iam_role_arn = "arn:aws:iam::123456789012:role/nyl-bq-omni-s3-read-role"
+aws_iam_role_arn = "arn:aws:iam::083822479215:role/BQ_OMNI_READ_WRITE_ROLE"
 
 # 3. BIGQUERY OMNI DATASET
-dataset_id   = "nyl_bq_omni_aws_s3_dataset"
+dataset_id   = "bq_omni_test_dtst"
 dataset_name = "NYL BigQuery Omni S3 Analytics Dataset"
 
-# 4. EXTERNAL TABLES DEFINITION OVER AWS S3 DATA
-external_tables = {}
+# 4. EXTERNAL TABLES DEFINITIONS OVER AWS S3 DATA (7 TABLES)
+external_tables = {
+  # Table 1: Structured Parquet Data
+  "ext_tbl_omni_str_parquet" = {
+    source_uris   = ["s3://nyl-cross-cloud-data-store-083822479215-us-east-1-an/structured_data/parquet/*.parquet"]
+    source_format = "PARQUET"
+    autodetect    = true
+  }
+
+  # Table 2: Sales Transactions CSV Data
+  "ext_tbl_omni_sales_csv" = {
+    source_uris   = ["s3://nyl-cross-cloud-data-store-083822479215-us-east-1-an/sales_data/*.csv"]
+    source_format = "CSV"
+    autodetect    = true
+    csv_options = {
+      quote                 = "\""
+      allow_quoted_newlines = true
+      skip_leading_rows     = 1
+      field_delimiter       = ","
+    }
+  }
+
+  # Table 3: Customer Profiles JSON Data
+  "ext_tbl_omni_customer_json" = {
+    source_uris   = ["s3://nyl-cross-cloud-data-store-083822479215-us-east-1-an/customer_data/*.json"]
+    source_format = "NEWLINE_DELIMITED_JSON"
+    autodetect    = true
+  }
+
+  # Table 4: System Operational Logs AVRO Data
+  "ext_tbl_omni_logs_avro" = {
+    source_uris   = ["s3://nyl-cross-cloud-data-store-083822479215-us-east-1-an/logs_data/*.avro"]
+    source_format = "AVRO"
+    autodetect    = true
+  }
+
+  # Table 5: Performance Metrics ORC Data
+  "ext_tbl_omni_metrics_orc" = {
+    source_uris   = ["s3://nyl-cross-cloud-data-store-083822479215-us-east-1-an/metrics_data/*.orc"]
+    source_format = "ORC"
+    autodetect    = true
+  }
+
+  # Table 6: Unstructured Document Metadata Parquet
+  "ext_tbl_omni_unstructured_metadata" = {
+    source_uris   = ["s3://nyl-cross-cloud-data-store-083822479215-us-east-1-an/unstructured_metadata/*.parquet"]
+    source_format = "PARQUET"
+    autodetect    = true
+  }
+
+  # Table 7: Security Audit Logs CSV Data
+  "ext_tbl_omni_audit_csv" = {
+    source_uris   = ["s3://nyl-cross-cloud-data-store-083822479215-us-east-1-an/audit_logs/*.csv"]
+    source_format = "CSV"
+    autodetect    = true
+    csv_options = {
+      quote                 = "\""
+      allow_quoted_newlines = true
+      skip_leading_rows     = 1
+      field_delimiter       = ","
+    }
+  }
+}
 
 # 5. ENTERPRISE GOVERNANCE LABELS
 labels = {
-  application         = "bigquery-omni-aws"
+  application_id      = "bigquery-omni-aws"
   business_unit       = "data-platform"
   environment         = "prod"
   owner_team          = "analytics-engineering"

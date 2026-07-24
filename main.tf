@@ -23,7 +23,7 @@ provider "google-beta" {
 }
 
 # =============================================================================
-# 1. BIGQUERY OMNI AWS CONNECTION & DATASET
+# 1. BIGQUERY OMNI AWS CONNECTION, DATASET & 7 EXTERNAL TABLES
 # Direct hardcoded configuration for BigQuery Omni cross-cloud AWS S3 access.
 # =============================================================================
 module "bq_omni_connection" {
@@ -41,6 +41,122 @@ resource "google_bigquery_dataset" "omni_dataset" {
   friendly_name = "NYL BigQuery Omni AWS Dataset"
   description   = "BigQuery Omni Dataset located in AWS region aws-us-east-1"
   location      = "aws-us-east-1"
+}
+
+# -----------------------------------------------------------------------------
+# 7 EXTERNAL TABLES DEFINED OVER AWS S3 DATA
+# -----------------------------------------------------------------------------
+
+# Table 1: Structured Parquet Data
+resource "google_bigquery_table" "ext_tbl_omni_str_parquet" {
+  project    = var.project_id
+  dataset_id = google_bigquery_dataset.omni_dataset.dataset_id
+  table_id   = "ext_tbl_omni_str_parquet"
+
+  external_data_configuration {
+    autodetect    = true
+    source_format = "PARQUET"
+    source_uris   = ["s3://nyl-cross-cloud-data-store-083822479215-us-east-1-an/structured_data/parquet/*.parquet"]
+    connection_id = module.bq_omni_connection.connection_name
+  }
+}
+
+# Table 2: Sales Transactions CSV Data
+resource "google_bigquery_table" "ext_tbl_omni_sales_csv" {
+  project    = var.project_id
+  dataset_id = google_bigquery_dataset.omni_dataset.dataset_id
+  table_id   = "ext_tbl_omni_sales_csv"
+
+  external_data_configuration {
+    autodetect    = true
+    source_format = "CSV"
+    source_uris   = ["s3://nyl-cross-cloud-data-store-083822479215-us-east-1-an/sales_data/*.csv"]
+    connection_id = module.bq_omni_connection.connection_name
+
+    csv_options {
+      quote                 = "\""
+      allow_quoted_newlines = true
+      skip_leading_rows     = 1
+      field_delimiter       = ","
+    }
+  }
+}
+
+# Table 3: Customer Profiles JSON Data
+resource "google_bigquery_table" "ext_tbl_omni_customer_json" {
+  project    = var.project_id
+  dataset_id = google_bigquery_dataset.omni_dataset.dataset_id
+  table_id   = "ext_tbl_omni_customer_json"
+
+  external_data_configuration {
+    autodetect    = true
+    source_format = "NEWLINE_DELIMITED_JSON"
+    source_uris   = ["s3://nyl-cross-cloud-data-store-083822479215-us-east-1-an/customer_data/*.json"]
+    connection_id = module.bq_omni_connection.connection_name
+  }
+}
+
+# Table 4: System Operational Logs AVRO Data
+resource "google_bigquery_table" "ext_tbl_omni_logs_avro" {
+  project    = var.project_id
+  dataset_id = google_bigquery_dataset.omni_dataset.dataset_id
+  table_id   = "ext_tbl_omni_logs_avro"
+
+  external_data_configuration {
+    autodetect    = true
+    source_format = "AVRO"
+    source_uris   = ["s3://nyl-cross-cloud-data-store-083822479215-us-east-1-an/logs_data/*.avro"]
+    connection_id = module.bq_omni_connection.connection_name
+  }
+}
+
+# Table 5: Performance Metrics ORC Data
+resource "google_bigquery_table" "ext_tbl_omni_metrics_orc" {
+  project    = var.project_id
+  dataset_id = google_bigquery_dataset.omni_dataset.dataset_id
+  table_id   = "ext_tbl_omni_metrics_orc"
+
+  external_data_configuration {
+    autodetect    = true
+    source_format = "ORC"
+    source_uris   = ["s3://nyl-cross-cloud-data-store-083822479215-us-east-1-an/metrics_data/*.orc"]
+    connection_id = module.bq_omni_connection.connection_name
+  }
+}
+
+# Table 6: Unstructured Document Metadata Parquet
+resource "google_bigquery_table" "ext_tbl_omni_unstructured_metadata" {
+  project    = var.project_id
+  dataset_id = google_bigquery_dataset.omni_dataset.dataset_id
+  table_id   = "ext_tbl_omni_unstructured_metadata"
+
+  external_data_configuration {
+    autodetect    = true
+    source_format = "PARQUET"
+    source_uris   = ["s3://nyl-cross-cloud-data-store-083822479215-us-east-1-an/unstructured_metadata/*.parquet"]
+    connection_id = module.bq_omni_connection.connection_name
+  }
+}
+
+# Table 7: Security Audit Logs CSV Data
+resource "google_bigquery_table" "ext_tbl_omni_audit_csv" {
+  project    = var.project_id
+  dataset_id = google_bigquery_dataset.omni_dataset.dataset_id
+  table_id   = "ext_tbl_omni_audit_csv"
+
+  external_data_configuration {
+    autodetect    = true
+    source_format = "CSV"
+    source_uris   = ["s3://nyl-cross-cloud-data-store-083822479215-us-east-1-an/audit_logs/*.csv"]
+    connection_id = module.bq_omni_connection.connection_name
+
+    csv_options {
+      quote                 = "\""
+      allow_quoted_newlines = true
+      skip_leading_rows     = 1
+      field_delimiter       = ","
+    }
+  }
 }
 
 # =============================================================================
