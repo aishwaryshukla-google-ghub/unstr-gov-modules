@@ -32,6 +32,7 @@ resource "google_cloudfunctions2_function" "nyl_flask_app_cloud_function" {
     service_account = "projects/${var.project_id}/serviceAccounts/${var.service_account_email}"
     environment_variables = {
       GOOGLE_FUNCTION_SOURCE = "app.py"
+      PROJECT_ID             = var.project_id
     }
     source {
       storage_source {
@@ -51,6 +52,7 @@ resource "google_cloudfunctions2_function" "nyl_flask_app_cloud_function" {
       INSPECT_TEMPLATE_NAME    = google_data_loss_prevention_inspect_template.nyl_inspect_template.id
       DEIDENTIFY_TEMPLATE_NAME = google_data_loss_prevention_deidentify_template.nyl_deidentify_template.id
       DLP_LOCATION             = var.region
+      PROJECT_ID               = var.project_id
     }
   }
 }
