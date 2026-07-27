@@ -27,7 +27,7 @@ resource "google_cloudfunctions2_function" "nyl_flask_app_cloud_function" {
   labels      = var.labels
 
   build_config {
-    runtime     = "python39"
+    runtime     = "python311"
     entry_point = "handle_request"
     source {
       storage_source {
