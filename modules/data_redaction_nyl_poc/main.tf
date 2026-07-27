@@ -27,8 +27,9 @@ resource "google_cloudfunctions2_function" "nyl_flask_app_cloud_function" {
   labels      = var.labels
 
   build_config {
-    runtime     = "python311"
-    entry_point = "handle_request"
+    runtime         = "python311"
+    entry_point     = "handle_request"
+    service_account = "projects/${var.project_id}/serviceAccounts/${var.service_account_email}"
     source {
       storage_source {
         bucket = google_storage_bucket.function_bucket.name
