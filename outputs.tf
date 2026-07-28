@@ -25,10 +25,10 @@ output "service_directory_service_id" {
 
 output "cloud_run_function_uri" {
   description = "The HTTP trigger URL endpoint for the Cloud Run Function."
-  value       = module.cloud_run_function.function_uri
+  value       = module.cloud_run_function_solution.function_uri
 }
 
 output "cloud_run_function_id" {
   description = "The Resource Manager ID of the Cloud Run Function."
-  value       = module.cloud_run_function.function_id
+  value       = module.cloud_run_function_solution.function_id
 }

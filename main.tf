@@ -9,6 +9,10 @@ terraform {
       source  = "hashicorp/google-beta"
       version = "7.39.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = ">= 2.4.0"
+    }
   }
 }
 
@@ -224,64 +228,12 @@ module "federated_catalog" {
 }
 
 # =============================================================================
-# 4. UNSTRUCTURED GOVERNANCE CLOUD RUN FUNCTION (2nd Gen)
-# Provisions Source Staging GCS Bucket & Deploys Cloud Run Function Module
+# 4. UNSTRUCTURED GOVERNANCE CLOUD RUN FUNCTION SOLUTION
+# Encapsulated solution recipe (manages source bucket, zip packaging & module)
 # =============================================================================
-resource "google_storage_bucket" "crf_source_bucket" {
-  name                        = "${var.project_id}-crf-source-${var.region}"
-  project                     = var.project_id
-  location                    = var.region
-  uniform_bucket_level_access = true
-  force_destroy               = true
-
-  labels = {
-    application_id      = "unstructured-governance"
-    business_unit       = "data-platform"
-    environment         = "prod"
-    managed_by          = "terraform"
-    data_classification = "confidential"
-  }
-}
-
-resource "google_storage_bucket_object" "crf_source_object" {
-  name   = "source-${filemd5("${path.module}/solutions/cloud_run_function/function_source.zip")}.zip"
-  bucket = google_storage_bucket.crf_source_bucket.name
-  source = "${path.module}/solutions/cloud_run_function/function_source.zip"
-}
-
-module "cloud_run_function" {
-  source        = "./modules/cloud_run_function"
-  project_id    = var.project_id
-  region        = var.region
-  function_name = "nyl-gov-cloud-run-func"
-  description   = "NYL Unstructured Governance Cloud Run Function (2nd Gen)"
-  runtime       = "python311"
-  entry_point   = "hello_world"
-
-  storage_source = {
-    bucket = google_storage_bucket.crf_source_bucket.name
-    object = google_storage_bucket_object.crf_source_object.name
-  }
-
-  max_instance_count = 5
-  min_instance_count = 0
-  available_memory   = "256Mi"
-  timeout_seconds    = 60
-
-  environment_variables = {
-    LOG_LEVEL = "INFO"
-    APP_ENV   = "prod"
-  }
-
-  invokers = [
-    "serviceAccount:440211474906-compute@developer.gserviceaccount.com"
-  ]
-
-  labels = {
-    application_id      = "unstructured-governance"
-    business_unit       = "data-platform"
-    environment         = "prod"
-    managed_by          = "terraform"
-    data_classification = "confidential"
-  }
+module "cloud_run_function_solution" {
+  source          = "./solutions/cloud_run_function"
+  project_id      = var.project_id
+  region          = var.region
+  deploy_sa_email = var.deploy_sa_email
 }

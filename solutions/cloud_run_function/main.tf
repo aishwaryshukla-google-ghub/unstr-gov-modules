@@ -9,6 +9,10 @@ terraform {
       source  = "hashicorp/google-beta"
       version = ">= 7.39.0, < 8.0.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = ">= 2.4.0"
+    }
   }
 }
 
@@ -35,18 +39,21 @@ resource "google_storage_bucket" "source_bucket" {
 }
 
 # -----------------------------------------------------------------------------
-# 2. SOURCE ZIP ARCHIVE PACKAGE
+# 2. LOCAL SOURCE ZIP ARCHIVE PACKAGING
 # -----------------------------------------------------------------------------
-# Packaged function source archive (e.g. function_source.zip)
-# Upload to GCS using native filemd5 hash for automatic deployment triggers
+data "archive_file" "function_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/src"
+  output_path = "${path.module}/function_source.zip"
+}
 
 # -----------------------------------------------------------------------------
 # 3. UPLOAD SOURCE ZIP ARCHIVE TO GCS
 # -----------------------------------------------------------------------------
 resource "google_storage_bucket_object" "function_source_object" {
-  name   = "source-${filemd5("${path.module}/function_source.zip")}.zip"
+  name   = "source-${data.archive_file.function_zip.output_md5}.zip"
   bucket = google_storage_bucket.source_bucket.name
-  source = "${path.module}/function_source.zip"
+  source = data.archive_file.function_zip.output_path
 }
 
 # -----------------------------------------------------------------------------
