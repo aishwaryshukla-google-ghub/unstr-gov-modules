@@ -77,7 +77,7 @@ resource "google_bigquery_connection" "remote_connection" {
 # 4. BigQuery Remote Function (Routine)
 resource "google_bigquery_routine" "remote_function" {
   dataset_id   = var.dataset_id
-  routine_id   = "sample_remote_function"
+  routine_id   = "dlp_redact_text"
   routine_type = "SCALAR_FUNCTION"
   project      = var.project_id
 

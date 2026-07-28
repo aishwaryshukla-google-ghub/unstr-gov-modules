@@ -1,9 +1,18 @@
 resource "google_data_loss_prevention_inspect_template" "nyl_inspect_template" {
   parent       = "projects/${var.project_id}/locations/${var.region}"
-  description  = "Inspect template for NYL OOB Redaction"
+  description  = "Inspect template for NYL OOB and Custom Redaction"
   display_name = "nyl_inspect_template"
 
   inspect_config {
+    custom_info_types {
+      info_type {
+        name = "NYL_ID"
+      }
+      regex {
+        pattern = "T[A-Za-z0-9]{6}"
+      }
+    }
+
     info_types {
       name = "STREET_ADDRESS"
     }
@@ -21,12 +30,15 @@ resource "google_data_loss_prevention_inspect_template" "nyl_inspect_template" {
 
 resource "google_data_loss_prevention_deidentify_template" "nyl_deidentify_template" {
   parent       = "projects/${var.project_id}/locations/${var.region}"
-  description  = "De-identify template for NYL OOB Redaction"
+  description  = "De-identify template for NYL OOB and Custom Redaction"
   display_name = "nyl_deidentify_template"
 
   deidentify_config {
     info_type_transformations {
       transformations {
+        info_types {
+          name = "NYL_ID"
+        }
         info_types {
           name = "STREET_ADDRESS"
         }
