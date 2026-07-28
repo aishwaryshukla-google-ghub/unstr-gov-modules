@@ -82,8 +82,8 @@ module "cloud_run_function" {
   secret_environment_variables   = var.secret_environment_variables
   ingress_settings               = var.ingress_settings
   all_traffic_on_latest_revision = var.all_traffic_on_latest_revision
-  service_account_email          = var.deploy_sa_email
-  build_service_account          = var.deploy_sa_email
+  service_account_email          = var.service_account_email != null ? var.service_account_email : var.deploy_sa_email
+  build_service_account          = var.build_service_account != null ? var.build_service_account : var.deploy_sa_email
   vpc_connector                  = var.vpc_connector
   vpc_connector_egress_settings  = var.vpc_connector_egress_settings
   event_trigger                  = var.event_trigger

@@ -231,7 +231,7 @@ module "federated_catalog" {
 # 4. UNSTRUCTURED GOVERNANCE CLOUD RUN FUNCTION SOLUTION
 # Encapsulated solution recipe (manages source bucket, zip packaging & module)
 # =============================================================================
-module "cloud_run_function_solution" {
+module "cloud_run_function" {
   source          = "./solutions/cloud_run_function"
   project_id      = var.project_id
   region          = var.region
