@@ -92,13 +92,13 @@ resource "google_cloudfunctions2_function" "function" {
   labels = var.labels
 }
 
-# Grant Invoker permissions to specified IAM members
-resource "google_cloudfunctions2_function_iam_member" "invoker" {
+# Grant Invoker permissions to specified IAM members on the underlying Cloud Run service
+resource "google_cloud_run_v2_service_iam_member" "invoker" {
   for_each = toset(var.invokers)
 
-  project        = var.project_id
-  location       = var.region
-  cloud_function = google_cloudfunctions2_function.function.name
-  role           = var.invoker_role
-  member         = each.value
+  project  = var.project_id
+  location = var.region
+  name     = google_cloudfunctions2_function.function.service_config[0].service
+  role     = var.invoker_role == "roles/cloudfunctions.invoker" ? "roles/run.invoker" : var.invoker_role
+  member   = each.value
 }

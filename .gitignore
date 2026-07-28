@@ -9,6 +9,7 @@ execution_log.md
 *.plan
 *.tfvars
 !*.tfvars.sample
+*.zip
 
 # System & Editor files
 .DS_Store

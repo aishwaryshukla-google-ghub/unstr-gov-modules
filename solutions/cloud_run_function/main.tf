@@ -35,21 +35,18 @@ resource "google_storage_bucket" "source_bucket" {
 }
 
 # -----------------------------------------------------------------------------
-# 2. LOCAL SOURCE ZIP ARCHIVE PACKAGING
+# 2. SOURCE ZIP ARCHIVE PACKAGE
 # -----------------------------------------------------------------------------
-data "archive_file" "function_zip" {
-  type        = "zip"
-  source_dir  = "${path.module}/src"
-  output_path = "${path.module}/function_source.zip"
-}
+# Packaged function source archive (e.g. function_source.zip)
+# Upload to GCS using native filemd5 hash for automatic deployment triggers
 
 # -----------------------------------------------------------------------------
 # 3. UPLOAD SOURCE ZIP ARCHIVE TO GCS
 # -----------------------------------------------------------------------------
 resource "google_storage_bucket_object" "function_source_object" {
-  name   = "source-${data.archive_file.function_zip.output_md5}.zip"
+  name   = "source-${filemd5("${path.module}/function_source.zip")}.zip"
   bucket = google_storage_bucket.source_bucket.name
-  source = data.archive_file.function_zip.output_path
+  source = "${path.module}/function_source.zip"
 }
 
 # -----------------------------------------------------------------------------
