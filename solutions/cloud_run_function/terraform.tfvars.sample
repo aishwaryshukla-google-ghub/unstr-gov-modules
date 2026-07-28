@@ -1,0 +1,44 @@
+# Sample terraform.tfvars configuration for Cloud Run Function Solution
+# Copy this file to terraform.tfvars and edit with your environment settings.
+
+project_id    = "YOUR_GCP_PROJECT_ID"
+region        = "us-east4"
+function_name = "nyl-gov-cloud-run-func"
+description   = "NYL Unstructured Governance Cloud Run Function (2nd Gen)"
+runtime       = "python311"
+entry_point   = "hello_world"
+
+# Execution scaling limits
+max_instance_count = 10
+min_instance_count = 0
+available_memory   = "512Mi"
+timeout_seconds    = 60
+
+# Container runtime environment variables
+environment_variables = {
+  LOG_LEVEL = "INFO"
+  APP_ENV   = "dev"
+}
+
+# Optional secret environment variables referenced from Secret Manager
+# secret_environment_variables = [
+#   {
+#     key        = "API_KEY"
+#     project_id = "YOUR_GCP_PROJECT_ID"
+#     secret     = "my-api-key-secret"
+#     version    = "latest"
+#   }
+# ]
+
+# IAM Invoker principals (e.g. allUsers for public, or specific service accounts/users)
+invokers = [
+  "allUsers"
+]
+
+# Governance & compliance labels
+labels = {
+  application         = "unstructured-governance"
+  environment         = "dev"
+  managed_by          = "terraform"
+  data_classification = "confidential"
+}
