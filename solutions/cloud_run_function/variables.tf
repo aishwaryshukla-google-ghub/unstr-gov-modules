@@ -111,6 +111,12 @@ variable "service_account_email" {
   default     = null
 }
 
+variable "build_service_account" {
+  description = "Build service account email used by Cloud Build."
+  type        = string
+  default     = null
+}
+
 variable "vpc_connector" {
   description = "Serverless VPC Access connector name/path."
   type        = string
