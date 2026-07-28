@@ -22,3 +22,13 @@ output "service_directory_service_id" {
   description = "The Service Directory Service resource ID."
   value       = module.private_bridge.service_directory_service_id
 }
+
+output "cloud_run_function_uri" {
+  description = "The HTTP trigger URL endpoint for the Cloud Run Function."
+  value       = module.cloud_run_function.function_uri
+}
+
+output "cloud_run_function_id" {
+  description = "The Resource Manager ID of the Cloud Run Function."
+  value       = module.cloud_run_function.function_id
+}
