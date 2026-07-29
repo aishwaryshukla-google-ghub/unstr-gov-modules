@@ -149,7 +149,7 @@ variable "event_trigger" {
 variable "invokers" {
   description = "List of IAM principals allowed to invoke the function."
   type        = list(string)
-  default     = ["allUsers"]
+  default     = []
 }
 
 variable "invoker_role" {
