@@ -67,6 +67,10 @@ locals {
   resolved_sa_email = var.create_service_account ? module.dedicated_service_account[0].email : (
     var.service_account_email != null ? var.service_account_email : var.deploy_sa_email
   )
+
+  resolved_invokers = length(var.invokers) > 0 ? var.invokers : (
+    local.resolved_sa_email != null ? ["serviceAccount:${local.resolved_sa_email}"] : []
+  )
 }
 
 # -----------------------------------------------------------------------------
@@ -100,7 +104,7 @@ module "cloud_run_function" {
   vpc_connector                  = var.vpc_connector
   vpc_connector_egress_settings  = var.vpc_connector_egress_settings
   event_trigger                  = var.event_trigger
-  invokers                       = var.invokers
+  invokers                       = local.resolved_invokers
   invoker_role                   = var.invoker_role
   labels                         = var.labels
 }
