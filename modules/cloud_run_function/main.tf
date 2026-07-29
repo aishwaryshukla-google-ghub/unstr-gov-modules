@@ -40,8 +40,14 @@ resource "google_cloudfunctions2_function" "function" {
       }
     }
 
-    docker_repository     = var.docker_repository
-    service_account       = var.build_service_account
+    docker_repository = var.docker_repository
+    service_account = var.build_service_account != null && var.build_service_account != "" ? (
+      startswith(var.build_service_account, "projects/") ? var.build_service_account : (
+        startswith(var.build_service_account, "serviceAccount:") ?
+        "projects/${var.project_id}/serviceAccounts/${replace(var.build_service_account, "serviceAccount:", "")}" :
+        "projects/${var.project_id}/serviceAccounts/${var.build_service_account}"
+      )
+    ) : null
     environment_variables = var.build_environment_variables
   }
 
