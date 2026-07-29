@@ -49,6 +49,27 @@ resource "google_storage_bucket_object" "function_source_object" {
 }
 
 # -----------------------------------------------------------------------------
+# 3.1 DEDICATED EXECUTION SERVICE ACCOUNT (OPTIONAL)
+# -----------------------------------------------------------------------------
+module "dedicated_service_account" {
+  count        = var.create_service_account ? 1 : 0
+  source       = "../../modules/service_account"
+  project_id   = var.project_id
+  account_id   = var.service_account_id
+  display_name = "NYL Cloud Run Function Execution SA (${var.function_name})"
+  description  = "Execution Service Account for Cloud Run Function ${var.function_name}"
+  project_roles = [
+    "roles/logging.logWriter"
+  ]
+}
+
+locals {
+  resolved_sa_email = var.create_service_account ? module.dedicated_service_account[0].email : (
+    var.service_account_email != null ? var.service_account_email : var.deploy_sa_email
+  )
+}
+
+# -----------------------------------------------------------------------------
 # 4. CLOUD RUN FUNCTION MODULE INVOCATION
 # -----------------------------------------------------------------------------
 module "cloud_run_function" {
@@ -74,8 +95,8 @@ module "cloud_run_function" {
   secret_environment_variables   = var.secret_environment_variables
   ingress_settings               = var.ingress_settings
   all_traffic_on_latest_revision = var.all_traffic_on_latest_revision
-  service_account_email          = var.service_account_email != null ? var.service_account_email : var.deploy_sa_email
-  build_service_account          = var.build_service_account != null ? var.build_service_account : var.deploy_sa_email
+  service_account_email          = local.resolved_sa_email
+  build_service_account          = var.build_service_account != null ? var.build_service_account : local.resolved_sa_email
   vpc_connector                  = var.vpc_connector
   vpc_connector_egress_settings  = var.vpc_connector_egress_settings
   event_trigger                  = var.event_trigger

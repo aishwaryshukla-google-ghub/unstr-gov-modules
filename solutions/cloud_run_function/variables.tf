@@ -105,8 +105,20 @@ variable "all_traffic_on_latest_revision" {
   default     = true
 }
 
+variable "create_service_account" {
+  description = "Whether to provision a net-new dedicated execution Service Account."
+  type        = bool
+  default     = false
+}
+
+variable "service_account_id" {
+  description = "The short account ID when provisioning a net-new Service Account."
+  type        = string
+  default     = "nyl-gov-crf-sa"
+}
+
 variable "service_account_email" {
-  description = "Service account email under which function executes."
+  description = "Existing Service account email under which function executes."
   type        = string
   default     = null
 }
