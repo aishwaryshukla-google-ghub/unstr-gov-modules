@@ -22,14 +22,15 @@ resource "google_compute_subnetwork" "proxy_subnet" {
 }
 
 resource "google_compute_subnetwork" "workload_subnet" {
-  count         = var.workload_subnet_cidr != null ? 1 : 0
-  name          = "${var.bridge_name_prefix}-workload-subnet"
-  project       = var.project_id
-  region        = var.region
-  network       = var.vpc_network
-  ip_cidr_range = var.workload_subnet_cidr
-  purpose       = "PRIVATE"
-  description   = "Net-new Workload subnetwork for Cross-Cloud Lakehouse internal forwarding rule VIP"
+  count                    = var.workload_subnet_cidr != null ? 1 : 0
+  name                     = "${var.bridge_name_prefix}-workload-subnet"
+  project                  = var.project_id
+  region                   = var.region
+  network                  = var.vpc_network
+  ip_cidr_range            = var.workload_subnet_cidr
+  purpose                  = "PRIVATE"
+  private_ip_google_access = true
+  description              = "Net-new Workload subnetwork for Cross-Cloud Lakehouse internal forwarding rule VIP"
 }
 
 locals {

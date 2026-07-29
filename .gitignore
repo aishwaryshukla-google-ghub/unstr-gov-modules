@@ -14,3 +14,4 @@ execution_log.md
 # System & Editor files
 .DS_Store
 *.log
+**/__pycache__/**
