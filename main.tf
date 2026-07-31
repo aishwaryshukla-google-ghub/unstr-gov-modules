@@ -240,5 +240,25 @@ module "cloud_run_function" {
   service_account_id     = "nyl-gov-crf-sa"
 }
 
+# =============================================================================
+# 5. BIGQUERY REMOTE FUNCTION SOLUTION
+# Wires BigQuery SQL directly to the Cloud Run Function via Cloud Resource Connection
+# =============================================================================
+module "bigquery_remote_function" {
+  source                 = "./solutions/bigquery/functions/remote"
+  project_id             = var.project_id
+  region                 = var.region
+  dataset_id             = google_bigquery_dataset.unstructured_governance.dataset_id
+  routine_id             = "retrieve_llm_result"
+  endpoint               = module.cloud_run_function.function_uri
+  cloud_run_service_name = module.cloud_run_function.function_name
+
+  depends_on = [
+    module.cloud_run_function,
+    google_bigquery_dataset.unstructured_governance
+  ]
+}
+
+
 
 
