@@ -239,3 +239,58 @@ module "cloud_run_function" {
   create_service_account = false # Set to true to provision a dedicated execution Service Account
   service_account_id     = "nyl-gov-crf-sa"
 }
+
+
+# DEBUG
+# =============================================================================
+# INSPECT LIVE TRANSIT VPC & SUBNET PROPERTIES
+# =============================================================================
+
+# 1. Inspect the Transit VPC Network
+data "google_compute_network" "transit_vpc" {
+  provider = google.transit
+  name     = "vpc-g-ssvcs-transit"
+  project  = "nyl-pr-ssvcs-transit-nw-01"
+}
+
+# 2. Inspect the Proxy-Only Subnet in us-east4
+data "google_compute_subnetwork" "proxy_subnet_east" {
+  provider = google.transit
+  name     = "vpc-g-ssvcs-transit-proxy01-use4"
+  region   = "us-east4"
+  project  = "nyl-pr-ssvcs-transit-nw-01"
+}
+
+# 3. Inspect the LB (VIP) Subnet in us-east4
+data "google_compute_subnetwork" "lb_subnet_east" {
+  provider = google.transit
+  name     = "vpc-g-ssvcs-transit-lb01-use4"
+  region   = "us-east4"
+  project  = "nyl-pr-ssvcs-transit-nw-01"
+}
+
+# =============================================================================
+# OUTPUT THE REAL-TIME GCP PROPERTIES IN YOUR LOGS
+# =============================================================================
+output "debug_proxy_subnet_east" {
+  value = {
+    name          = data.google_compute_subnetwork.proxy_subnet_east.name
+    purpose       = data.google_compute_subnetwork.proxy_subnet_east.purpose
+    role          = data.google_compute_subnetwork.proxy_subnet_east.role
+    ip_cidr_range = data.google_compute_subnetwork.proxy_subnet_east.ip_cidr_range
+    network       = data.google_compute_subnetwork.proxy_subnet_east.network
+  }
+}
+
+output "debug_lb_subnet_east" {
+  value = {
+    name          = data.google_compute_subnetwork.lb_subnet_east.name
+    purpose       = data.google_compute_subnetwork.lb_subnet_east.purpose
+    ip_cidr_range = data.google_compute_subnetwork.lb_subnet_east.ip_cidr_range
+    network       = data.google_compute_subnetwork.lb_subnet_east.network
+  }
+}
+
+output "debug_vpc_subnets_list" {
+  value = data.google_compute_network.transit_vpc.subnetworks_self_links
+}
