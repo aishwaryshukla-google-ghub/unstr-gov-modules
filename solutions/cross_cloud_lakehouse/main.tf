@@ -8,10 +8,7 @@ terraform {
   }
 }
 
-provider "google" {
-  project = var.project_id
-  region  = var.region
-}
+
 
 # -----------------------------------------------------------------------------
 # 1. CROSS-CLOUD PRIVATE BRIDGE (Layer 4 & Layer 7 Interconnect Backbone)

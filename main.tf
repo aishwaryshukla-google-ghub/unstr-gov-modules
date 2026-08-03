@@ -9,6 +9,10 @@ terraform {
       source  = "hashicorp/google-beta"
       version = "7.39.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = ">= 2.4.0"
+    }
   }
 }
 
@@ -222,3 +226,39 @@ module "federated_catalog" {
     }
   }
 }
+
+# =============================================================================
+# 4. UNSTRUCTURED GOVERNANCE CLOUD RUN FUNCTION SOLUTION
+# Encapsulated solution recipe (manages source bucket, zip packaging & module)
+# =============================================================================
+module "cloud_run_function" {
+  source                 = "./solutions/cloud_run_function"
+  project_id             = var.project_id
+  region                 = var.region
+  deploy_sa_email        = var.deploy_sa_email
+  create_service_account = false # Set to true to provision a dedicated execution Service Account
+  service_account_id     = "nyl-gov-crf-sa"
+}
+
+# =============================================================================
+# 5. BIGQUERY REMOTE FUNCTION SOLUTION
+# Wires BigQuery SQL directly to the Cloud Run Function via Cloud Resource Connection
+# =============================================================================
+module "bigquery_remote_function" {
+  source                 = "./solutions/bigquery/functions/remote"
+  project_id             = var.project_id
+  region                 = var.region
+  dataset_id             = google_bigquery_dataset.unstructured_governance.dataset_id
+  routine_id             = "retrieve_llm_result"
+  endpoint               = module.cloud_run_function.function_uri
+  cloud_run_service_name = module.cloud_run_function.function_name
+
+  depends_on = [
+    module.cloud_run_function,
+    google_bigquery_dataset.unstructured_governance
+  ]
+}
+
+
+
+
