@@ -1,0 +1,19 @@
+project_id      = "databricks-playground-497321"
+region          = "us-central1"
+dataset_id      = "nyl_unstructured_analytics"
+gcs_bucket_name = "bigquery-ml-test-data-bkt"
+
+table_mappings = {
+  "pdf"   = "pdf/"
+  "docx"  = "docx/"
+  "audio" = "audio/"
+}
+
+labels = {
+  application_id      = "unstructured-federation"
+  business_unit       = "data-analytics"
+  environment         = "dev"
+  owner_team          = "analytics-engineering"
+  managed_by          = "terraform"
+  data_classification = "confidential"
+}

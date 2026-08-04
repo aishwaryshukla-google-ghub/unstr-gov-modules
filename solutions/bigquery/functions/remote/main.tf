@@ -21,13 +21,14 @@ locals {
 # 2. IAM BINDING: GRANT CLOUD RUN INVOKER TO CONNECTION SERVICE ACCOUNT
 # -----------------------------------------------------------------------------
 resource "google_cloud_run_service_iam_member" "bq_invoker" {
-  count    = (var.cloud_run_service_name != null && local.connection_sa_email != null) ? 1 : 0
+  count    = (var.cloud_run_service_name != null && var.existing_connection_id == null) ? 1 : 0
   project  = var.project_id
   location = var.region
   service  = var.cloud_run_service_name
   role     = "roles/run.invoker"
-  member   = "serviceAccount:${local.connection_sa_email}"
+  member   = "serviceAccount:${google_bigquery_connection.connection[0].cloud_resource[0].service_account_id}"
 }
+
 
 # -----------------------------------------------------------------------------
 # 3. BIGQUERY ROUTINE (SCALAR REMOTE FUNCTION)
