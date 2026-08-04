@@ -5,7 +5,7 @@ output "dataset_id" {
 
 output "object_table_id" {
   description = "The ID of the BigQuery Object Table"
-  value       = google_bigquery_table.pdf_object_table.id
+  value       = google_bigquery_table.documents_object_table.id
 }
 
 output "bigquery_connection_service_account" {

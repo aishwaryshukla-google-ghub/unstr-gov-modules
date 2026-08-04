@@ -260,5 +260,38 @@ module "bigquery_remote_function" {
 }
 
 
+module "knowledge_catalog_setup" {
+  source      = "./modules/knowledge_catalog_setup"
+  project_id  = var.project_id
+  region      = var.region
+}
 
+module "unstructured_catalog" {
+  source                = "./modules/bigquery_unstructured_data"
+  project_id            = var.project_id
+  region                = var.region
+  bucket_name           = var.raw_docs_bucket_name
+  documents_folder_path = var.raw_docs_bucket_folder_path
+  dataset_id            = var.bq_raw_docs_dataset_id
+  table_id              = var.bq_raw_docs_table_id
+}
+
+# This BQ Service Account requires IAM permissions to read bucket files
+# Printing in case access request should be handled elsewhere
+output "connection_sa_to_authorize" {
+  value = module.unstructured_catalog.bigquery_connection_service_account
+}
+
+module "kc_assets_discovery" {
+  source                = "./modules/kc_assets_discovery"
+  project_id            = var.project_id
+  region                = var.region
+  lake_name             = module.knowledge_catalog_setup.lake_id
+  zone_name             = module.knowledge_catalog_setup.zone_ids["bronze"]
+  bucket_name           = var.raw_docs_bucket_name
+  bucket_folder_prefix  = var.raw_docs_bucket_folder_path
+  asset_id              = "unstructured-raw-data-asset"
+
+  depends_on = [ module.knowledge_catalog_setup ]
+}
 
