@@ -50,8 +50,7 @@ def get_field(data: Dict[str, Any], *keys: str, default=None) -> Any:
 
 class BigLakeStatusClient:
     """Client for querying BigLake Iceberg REST Catalogs via Google Cloud APIs."""
-    API_VERSIONS = ["v1", "v1alpha1", "v1beta1"]
-    BASE_URL = "https://biglake.googleapis.com"
+    BASE_REST_URL = "https://biglake.googleapis.com/iceberg/v1/restcatalog/extensions"
 
     def __init__(self, project_id: str):
         self.project_id = project_id
@@ -70,27 +69,43 @@ class BigLakeStatusClient:
         proj = project_id or self.project_id
         if not self.session:
             return {
-                "name": f"projects/{proj}/locations/{location}/catalogs/{catalog_name}",
+                "name": f"projects/{proj}/catalogs/{catalog_name}",
                 "catalog-type": "CATALOG_TYPE_FEDERATED",
                 "error": "Google Auth credentials not available in environment",
             }
 
-        last_error = None
-        for api_version in self.API_VERSIONS:
-            url = f"{self.BASE_URL}/{api_version}/projects/{proj}/locations/{location}/catalogs/{catalog_name}"
+        # 1. Primary Iceberg REST Catalog endpoint
+        primary_url = f"{self.BASE_REST_URL}/projects/{proj}/catalogs/{catalog_name}?alt=json"
+        headers = {"X-Goog-User-Project": proj, "Accept": "application/json"}
+
+        try:
+            response = self.session.get(primary_url, headers=headers, timeout=12)
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 404:
+                last_error = f"Catalog '{catalog_name}' not found in project '{proj}' (HTTP 404)."
+            else:
+                last_error = f"BigLake Iceberg API returned {response.status_code}: {response.text}"
+        except Exception as e:
+            last_error = str(e)
+
+        # 2. Fallback endpoints if v1 is behind regional gateways
+        fallback_urls = [
+            f"https://biglake.googleapis.com/v1/projects/{proj}/catalogs/{catalog_name}",
+            f"https://biglake.googleapis.com/v1/projects/{proj}/locations/{location}/catalogs/{catalog_name}",
+            f"https://biglake.googleapis.com/v1alpha1/projects/{proj}/catalogs/{catalog_name}",
+        ]
+
+        for url in fallback_urls:
             try:
-                response = self.session.get(url, timeout=12)
-                if response.status_code == 200:
-                    return response.json()
-                elif response.status_code == 404:
-                    last_error = f"Catalog '{catalog_name}' not found (HTTP 404)."
-                else:
-                    last_error = f"BigLake API {api_version} returned {response.status_code}: {response.text}"
-            except Exception as e:
-                last_error = str(e)
+                res = self.session.get(url, headers=headers, timeout=10)
+                if res.status_code == 200:
+                    return res.json()
+            except Exception:
+                pass
 
         return {
-            "name": f"projects/{proj}/locations/{location}/catalogs/{catalog_name}",
+            "name": f"projects/{proj}/catalogs/{catalog_name}",
             "error": last_error or "Failed to retrieve catalog metadata",
         }
 
@@ -99,14 +114,17 @@ class BigLakeStatusClient:
         if not self.session:
             return []
 
-        for api_version in self.API_VERSIONS:
-            url = f"{self.BASE_URL}/{api_version}/projects/{proj}/locations/{location}/catalogs"
-            try:
-                response = self.session.get(url, timeout=12)
-                if response.status_code == 200:
-                    return response.json().get("catalogs", [])
-            except Exception as e:
-                logger.warning(f"Error listing catalogs via {api_version}: {e}")
+        primary_url = f"{self.BASE_REST_URL}/projects/{proj}/catalogs?alt=json"
+        headers = {"X-Goog-User-Project": proj, "Accept": "application/json"}
+
+        try:
+            response = self.session.get(primary_url, headers=headers, timeout=12)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("catalogs", [])
+        except Exception as e:
+            logger.warning(f"Error listing catalogs via REST API: {e}")
+
         return []
 
 
