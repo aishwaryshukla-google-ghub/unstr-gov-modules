@@ -259,6 +259,44 @@ module "bigquery_remote_function" {
   ]
 }
 
+# =============================================================================
+# 6. LAKEHOUSE FEDERATED CATALOG STATUS MICROSERVICE RUNTIME SERVICE ACCOUNT
+# Grants least-privilege IAM roles to inspect BigLake catalogs, BigQuery, & secrets.
+# =============================================================================
+module "lakehouse_status_sa" {
+  source       = "./modules/service_account"
+  project_id   = var.project_id
+  account_id   = "nyl-lakehouse-status-sa"
+  display_name = "NYL Lakehouse Catalog Status Service SA"
+  description  = "Dedicated Runtime Service Account for BigLake Federated Catalog Status Microservice"
+  project_roles = [
+    "roles/biglake.viewer",       # Inspect BigLake Iceberg REST catalogs & sync status
+    "roles/bigquery.jobUser",     # Execute ping/validation queries against federated tables
+    "roles/bigquery.dataViewer",  # Inspect dataset and schema metadata
+    "roles/secretmanager.viewer", # Inspect Secret Manager secret metadata
+    "roles/logging.logWriter",    # Standard Cloud Run logging
+  ]
+}
+
+# =============================================================================
+# 7. LAKEHOUSE FEDERATED CATALOG STATUS CLOUD RUN FUNCTION SOLUTION
+# Deploys the serverless diagnostic service with automatic source packaging & GCS staging.
+# =============================================================================
+module "lakehouse_catalog_status" {
+  source                = "./solutions/lakehouse_catalog_status"
+  project_id            = var.project_id
+  region                = var.region
+  function_name         = "nyl-lakehouse-catalog-status"
+  description           = "NYL Lakehouse Federated Catalog Status & Health Diagnostic Service (2nd Gen)"
+  service_account_email = module.lakehouse_status_sa.email
+  invokers              = ["allUsers"]
+
+  depends_on = [
+    module.lakehouse_status_sa,
+    module.federated_catalog
+  ]
+}
+
 
 
 

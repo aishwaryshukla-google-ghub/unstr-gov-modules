@@ -43,3 +43,18 @@ output "bigquery_remote_function_connection_id" {
   value       = module.bigquery_remote_function.connection_id
 }
 
+output "lakehouse_status_function_uri" {
+  description = "The HTTP trigger URL endpoint for the Lakehouse Federated Catalog Status Function."
+  value       = module.lakehouse_catalog_status.function_uri
+}
+
+output "lakehouse_status_function_id" {
+  description = "The Resource Manager ID of the Lakehouse Federated Catalog Status Function."
+  value       = module.lakehouse_catalog_status.function_id
+}
+
+output "lakehouse_status_service_sa" {
+  description = "The dedicated runtime execution Service Account email for the Lakehouse Status Function."
+  value       = module.lakehouse_status_sa.email
+}
+
