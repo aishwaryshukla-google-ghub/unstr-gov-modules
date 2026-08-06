@@ -59,7 +59,11 @@ module "dedicated_service_account" {
   display_name = "NYL Cloud Run Function Execution SA (${var.function_name})"
   description  = "Execution Service Account for Cloud Run Function ${var.function_name}"
   project_roles = [
-    "roles/logging.logWriter"
+    "roles/logging.logWriter",
+    "roles/biglake.viewer",
+    "roles/bigquery.jobUser",
+    "roles/bigquery.dataViewer",
+    "roles/secretmanager.viewer",
   ]
 }
 

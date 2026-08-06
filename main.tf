@@ -236,7 +236,7 @@ module "cloud_run_function" {
   project_id             = var.project_id
   region                 = var.region
   deploy_sa_email        = var.deploy_sa_email
-  create_service_account = false # Set to true to provision a dedicated execution Service Account
+  create_service_account = true
   service_account_id     = "nyl-gov-crf-sa"
 }
 
