@@ -37,7 +37,7 @@ variable "runtime" {
 variable "entry_point" {
   description = "The function entrypoint."
   type        = string
-  default     = "hello_world"
+  default     = "retrieve_llm_result"
 }
 
 variable "source_bucket_name" {
