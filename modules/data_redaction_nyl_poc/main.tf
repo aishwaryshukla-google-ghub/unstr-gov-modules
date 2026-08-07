@@ -151,21 +151,6 @@ resource "google_storage_bucket_iam_member" "function_bucket_reader" {
   member = "serviceAccount:${var.service_account_email}"
 }
 
-# 6. BigQuery View (For Real-Time Demo)
-resource "google_bigquery_table" "redacted_documents_view" {
-  dataset_id = var.dataset_id
-  table_id   = "redacted_documents_view"
-  project    = var.project_id
-
-  view {
-    query = <<EOF
-SELECT 
-  uri,
-  content_type,
-  `${var.project_id}.${var.dataset_id}.dlp_redact_text`(uri) AS redacted_text
-FROM `${var.project_id}.${var.dataset_id}.unstructured_docs`
-WHERE uri LIKE '%.docx' OR uri LIKE '%.pdf'
-
 
 # 6. BigQuery View (For Real-Time Demo)
 resource "google_bigquery_table" "redacted_documents_view" {
