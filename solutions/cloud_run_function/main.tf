@@ -64,6 +64,8 @@ module "dedicated_service_account" {
     "roles/bigquery.jobUser",
     "roles/bigquery.dataViewer",
     "roles/secretmanager.viewer",
+    "roles/aiplatform.user",
+    "roles/storage.objectViewer",
   ]
 }
 

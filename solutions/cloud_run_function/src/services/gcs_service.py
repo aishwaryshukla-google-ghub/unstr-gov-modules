@@ -3,7 +3,11 @@ import urllib.parse
 import urllib.request
 import urllib.error
 from typing import Tuple
-from .auth_service import AuthService
+
+try:
+    from .auth_service import AuthService
+except ImportError:
+    from auth_service import AuthService
 
 
 class GCSService:

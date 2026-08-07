@@ -1,6 +1,12 @@
 import os
+import sys
 import json
 import logging
+from typing import Optional, Dict, Any, List, Tuple
+
+# Ensure current package directory is in sys.path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import functions_framework
 from flask import jsonify, Request
 
@@ -41,7 +47,7 @@ def process_unstructured_document(request: Request):
     req_args = request.args or {}
 
     default_model = os.environ.get("DEFAULT_MODEL", "gemini-3.5-flash")
-    default_location = os.environ.get("VERTEX_LOCATION", "global")
+    default_location = os.environ.get("VERTEX_LOCATION", "us-central1")
     default_prompt = "Extract all text, tables, and key metadata into clean structured markdown."
 
     # -------------------------------------------------------------------------

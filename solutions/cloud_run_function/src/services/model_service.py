@@ -3,8 +3,16 @@ import logging
 import urllib.request
 import urllib.error
 from typing import Dict, Any, Optional
-from .auth_service import AuthService, get_ssl_context
-from handlers.base import ProcessedContent
+
+try:
+    from .auth_service import AuthService, get_ssl_context
+except ImportError:
+    from auth_service import AuthService, get_ssl_context
+
+try:
+    from handlers.base import ProcessedContent
+except ImportError:
+    from .handlers.base import ProcessedContent
 
 logger = logging.getLogger("model_service")
 
