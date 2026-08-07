@@ -94,9 +94,9 @@ def test_live_claude(processed: ProcessedContent, project_id: str, location: str
     except Exception as e:
         print(f"⚠️ Claude on Vertex returned error: {e}")
 
-    # 2. Test Gemini on Vertex AI (generateContent)
+    # 2. Test Gemini on Vertex AI (generateContent) with user's exact global publisher endpoint
     gemini_model = "gemini-3.5-flash"
-    gemini_location = "us-central1"
+    gemini_location = "global"
     print(f"\n📡 Calling Gemini on Vertex: {gemini_model} (location: {gemini_location} -> :generateContent)...")
     try:
         gemini_res = ModelService.invoke_model(
@@ -108,7 +108,7 @@ def test_live_claude(processed: ProcessedContent, project_id: str, location: str
             max_tokens=2048
         )
         print("\n" + "-" * 50)
-        print(f"✨ Gemini 3.5 Flash Response:")
+        print(f"✨ Gemini 2.5 Pro Response:")
         print("-" * 50)
         print(gemini_res.get("extracted_text"))
         print("-" * 50)
@@ -119,7 +119,7 @@ def test_live_claude(processed: ProcessedContent, project_id: str, location: str
 
 def main():
     project_id = "databricks-playground-497321"
-    location = "us-central1"
+    location = "global"
 
     print(f"🚀 Starting Live End-to-End Test for Argolis Project: {project_id}")
     
