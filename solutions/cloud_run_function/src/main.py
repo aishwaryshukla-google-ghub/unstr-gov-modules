@@ -12,33 +12,80 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger("unstructured-multimodal-service")
 
 
+def _process_single_item(gcs_uri: str, prompt: str, model_name: str, location: str, project_id: Optional[str] = None, max_tokens: int = 4096) -> str:
+    """Helper to download, convert, invoke model, and return extracted text."""
+    file_bytes, filename = GCSService.download_file_bytes(gcs_uri)
+    handler = registry.get_handler(filename)
+    processed = handler.process(file_bytes, filename)
+    
+    result = ModelService.invoke_model(
+        processed=processed,
+        prompt=prompt,
+        project_id=project_id,
+        location=location,
+        model_name=model_name,
+        max_tokens=max_tokens
+    )
+    return result.get("extracted_text", "")
+
+
 @functions_framework.http
 def process_unstructured_document(request: Request):
     """
-    Unified HTTP Cloud Run Function Entrypoint for Unstructured Document & Media Processing.
-
-    Contract:
-    1. Downloads file from GCS Object URI (supports pdf, docx, xlsx, csv, md, txt, images, audio).
-    2. Converts document/tabular data into standardized PDF bytes (or preserves native media for image/audio).
-    3. Encodes into Base64 format.
-    4. Acquires Bearer Token from GCP Metadata Server.
-    5. Dispatches HTTP POST to multimodal foundation model on Vertex AI (Anthropic Messages API / Google Gemini).
-    6. Returns structured JSON output.
-
-    Sample Request Payload:
-    {
-      "prompt": "Extract all tabular data and summarize key entities.",
-      "gcs_uri": "gs://my-governance-bucket/reports/q3_data.xlsx",
-      "model_name": "claude-3-5-sonnet-v2@20241022",
-      "location": "us-central1",
-      "max_tokens": 4096
-    }
+    Unified Cloud Run Function Entrypoint.
+    Supports BOTH:
+    1. BigQuery Remote Functions (batch 'calls' -> 'replies' contract).
+    2. Direct HTTP / REST invocations (single 'gcs_uri' + 'prompt').
     """
-    # 1. Parse JSON or Form Data
     req_json = request.get_json(silent=True) or {}
     req_args = request.args or {}
 
-    prompt = req_json.get("prompt") or req_args.get("prompt") or "Extract all text, tables, and key metadata into clean structured markdown."
+    default_model = os.environ.get("DEFAULT_MODEL", "gemini-3.5-flash")
+    default_location = os.environ.get("VERTEX_LOCATION", "global")
+    default_prompt = "Extract all text, tables, and key metadata into clean structured markdown."
+
+    # -------------------------------------------------------------------------
+    # MODE 1: BIGQUERY REMOTE FUNCTION (Batch calls contract)
+    # -------------------------------------------------------------------------
+    if "calls" in req_json:
+        calls = req_json.get("calls", [])
+        logger.info(f"BigQuery Remote Function invocation with {len(calls)} batch rows")
+        
+        replies = []
+        for row in calls:
+            try:
+                # BigQuery Remote UDF passes arguments in order: (prompt, gcs_uri) or (gcs_uri, prompt)
+                if len(row) == 1:
+                    item_prompt, item_gcs_uri = default_prompt, row[0]
+                elif len(row) >= 2:
+                    # If first arg starts with gs://, it's uri first; otherwise prompt first
+                    if str(row[0]).startswith("gs://"):
+                        item_gcs_uri, item_prompt = row[0], row[1]
+                    else:
+                        item_prompt, item_gcs_uri = row[0], row[1]
+                else:
+                    replies.append(None)
+                    continue
+
+                extracted_text = _process_single_item(
+                    gcs_uri=item_gcs_uri,
+                    prompt=item_prompt,
+                    model_name=default_model,
+                    location=default_location
+                )
+                replies.append(extracted_text)
+
+            except Exception as e:
+                logger.error(f"Error processing row {row}: {e}")
+                replies.append(f"ERROR: {str(e)}")
+
+        # BigQuery expects exact {"replies": [...]} format
+        return jsonify({"replies": replies}), 200
+
+    # -------------------------------------------------------------------------
+    # MODE 2: DIRECT HTTP / REST / CURL INVOCATION
+    # -------------------------------------------------------------------------
+    prompt = req_json.get("prompt") or req_args.get("prompt") or default_prompt
     gcs_uri = req_json.get("gcs_uri") or req_json.get("uri") or req_args.get("gcs_uri") or req_args.get("uri")
 
     if not gcs_uri:
@@ -46,24 +93,16 @@ def process_unstructured_document(request: Request):
             "error": "Missing required field: 'gcs_uri' (e.g. gs://my-bucket/path/to/document.xlsx)"
         }), 400
 
-    model_name = req_json.get("model_name") or req_args.get("model_name") or os.environ.get("DEFAULT_MODEL", "claude-3-5-sonnet-v2@20241022")
-    location = req_json.get("location") or req_args.get("location") or os.environ.get("VERTEX_LOCATION", "us-central1")
+    model_name = req_json.get("model_name") or req_args.get("model_name") or default_model
+    location = req_json.get("location") or req_args.get("location") or default_location
     project_id = req_json.get("project_id") or req_args.get("project_id")
     max_tokens = int(req_json.get("max_tokens") or 4096)
 
-    logger.info(f"Incoming request -> GCS URI: {gcs_uri} | Model: {model_name} | Location: {location}")
-
     try:
-        # 2. Download File from GCS
         file_bytes, filename = GCSService.download_file_bytes(gcs_uri)
-        logger.info(f"Successfully downloaded '{filename}' ({len(file_bytes)} bytes)")
-
-        # 3. Strategy Dispatcher: Convert to PDF (or pass native media)
         handler = registry.get_handler(filename)
         processed = handler.process(file_bytes, filename)
-        logger.info(f"Processed '{filename}' with {handler.__class__.__name__} -> MIME: {processed.mime_type} (converted_to_pdf: {processed.converted_to_pdf})")
 
-        # 4. Invoke Model on Vertex AI (Claude or Gemini)
         result = ModelService.invoke_model(
             processed=processed,
             prompt=prompt,

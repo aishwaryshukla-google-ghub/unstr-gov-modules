@@ -117,6 +117,53 @@ def test_live_claude(processed: ProcessedContent, project_id: str, location: str
         print(f"⚠️ Gemini on Vertex returned error: {e}")
 
 
+def test_bigquery_remote_udf_contract(project_id: str, location: str):
+    print("\n" + "=" * 70)
+    print("📊 [STEP 4/4] Testing Live BigQuery Remote Function Batch Contract")
+    print("=" * 70)
+
+    # 1. Create sample test files
+    md_path = "/tmp/argolis_budget.md"
+    with open(md_path, "w") as f:
+        f.write("# Argolis Cloud Spending\n\n| Service | Q1 Budget | Q1 Actual |\n|---|---|---|\n| BigQuery | $40,000 | $38,500 |\n| Cloud Run | $15,000 | $12,200 |\n")
+
+    csv_path = "/tmp/argolis_inventory.csv"
+    with open(csv_path, "w") as f:
+        f.write("sku,resource_name,count,unit_cost\n101,Standard Persistent Disk,20,4.50\n102,Cloud Storage Bucket,10,2.00\n")
+
+    # 2. Mock BigQuery Remote Function Batch Request Payload
+    class MockBigQueryRequest:
+        def __init__(self, json_data):
+            self._json = json_data
+            self.args = {}
+        def get_json(self, silent=True):
+            return self._json
+
+    bq_payload = {
+        "requestId": "bq-job-12345-uuid",
+        "caller": f"//bigquery.googleapis.com/projects/{project_id}/jobs/job_abc123",
+        "calls": [
+            ["Extract all services, budget, and actuals as a structured summary.", md_path],
+            ["Extract all resource SKUs and total count.", csv_path]
+        ]
+    }
+
+    print(f"📡 Simulating BigQuery SQL batch invocation with {len(bq_payload['calls'])} rows...")
+    from main import process_unstructured_document
+    response_tuple = process_unstructured_document(MockBigQueryRequest(bq_payload))
+    response_json = response_tuple[0].get_json()
+
+    print("\n" + "-" * 50)
+    print("✨ BigQuery Remote UDF Response:")
+    print("-" * 50)
+    print(f"HTTP Status: {response_tuple[1]}")
+    print(f"Replies count: {len(response_json.get('replies', []))}")
+    for idx, reply in enumerate(response_json.get("replies", [])):
+        print(f"\n--- Reply for Row {idx + 1} ---")
+        print(reply)
+    print("-" * 50)
+
+
 def main():
     project_id = "databricks-playground-497321"
     location = "global"
@@ -126,6 +173,7 @@ def main():
     test_auth(project_id)
     processed_doc = test_handlers()
     test_live_claude(processed_doc, project_id, location)
+    test_bigquery_remote_udf_contract(project_id, location)
     
     print("\n" + "=" * 70)
     print("🎉 Live Argolis Test Completed!")
