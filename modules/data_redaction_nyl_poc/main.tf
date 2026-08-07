@@ -122,3 +122,31 @@ removed {
     destroy = false
   }
 }
+
+# 5. BigQuery Object Table for Unstructured Documents
+resource "google_bigquery_table" "unstructured_docs" {
+  dataset_id = var.dataset_id
+  table_id   = "unstructured_docs"
+  project    = var.project_id
+
+  external_data_configuration {
+    connection_id   = google_bigquery_connection.remote_connection.name
+    autodetect      = false
+    object_metadata = "SIMPLE"
+    source_uris     = ["gs://gcp-native-ws2-unstructured-dev/*"]
+  }
+}
+
+# Grant BigQuery Connection SA read access to the bucket
+resource "google_storage_bucket_iam_member" "connection_bucket_reader" {
+  bucket = "gcp-native-ws2-unstructured-dev"
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_bigquery_connection.remote_connection.cloud_resource[0].service_account_id}"
+}
+
+# Grant Cloud Function SA read access to the bucket
+resource "google_storage_bucket_iam_member" "function_bucket_reader" {
+  bucket = "gcp-native-ws2-unstructured-dev"
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${var.service_account_email}"
+}
