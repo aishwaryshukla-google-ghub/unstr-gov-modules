@@ -3,7 +3,7 @@ import logging
 import urllib.request
 import urllib.error
 from typing import Dict, Any, Optional
-from .auth_service import AuthService
+from .auth_service import AuthService, get_ssl_context
 from handlers.base import ProcessedContent
 
 logger = logging.getLogger("model_service")
@@ -69,8 +69,10 @@ class ModelService:
         Claude on Vertex AI Streaming Messages API:
         POST https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/anthropic/models/{model}:streamRawPredict
         """
+        # Handle global vs regional endpoint hostname
+        host = "aiplatform.googleapis.com" if location == "global" else f"{location}-aiplatform.googleapis.com"
         endpoint_url = (
-            f"https://{location}-aiplatform.googleapis.com/v1/"
+            f"https://{host}/v1/"
             f"projects/{project}/locations/{location}/publishers/anthropic/models/{model_name}:streamRawPredict"
         )
 
@@ -116,10 +118,11 @@ class ModelService:
             "text": prompt
         })
 
-        # 3. Payload structured exactly as in screenshot
+        # 3. Payload structured exactly as in screenshot + stream: true
         payload = {
             "anthropic_version": "vertex-2023-10-16",
             "max_tokens": max_tokens,
+            "stream": True,
             "messages": [
                 {
                     "role": "user",
@@ -142,7 +145,8 @@ class ModelService:
         )
 
         try:
-            with urllib.request.urlopen(req) as resp:
+            ssl_ctx = get_ssl_context()
+            with urllib.request.urlopen(req, context=ssl_ctx) as resp:
                 raw_bytes = resp.read()
                 raw_str = raw_bytes.decode("utf-8")
 
@@ -263,7 +267,8 @@ class ModelService:
         )
 
         try:
-            with urllib.request.urlopen(req) as resp:
+            ssl_ctx = get_ssl_context()
+            with urllib.request.urlopen(req, context=ssl_ctx) as resp:
                 resp_data = json.loads(resp.read().decode("utf-8"))
                 candidates = resp_data.get("candidates", [])
                 extracted_text = ""

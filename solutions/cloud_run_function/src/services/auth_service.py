@@ -1,12 +1,29 @@
 import os
 import json
 import logging
+import ssl
 import subprocess
 import urllib.request
 import urllib.error
 from typing import Tuple, Optional
 
 logger = logging.getLogger("auth_service")
+
+
+def get_ssl_context():
+    """
+    Creates an SSL context that handles macOS certificate bundles, certifi,
+    and dev environments gracefully.
+    """
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        pass
+    try:
+        return ssl.create_default_context()
+    except Exception:
+        return ssl._create_unverified_context()
 
 
 class AuthService:

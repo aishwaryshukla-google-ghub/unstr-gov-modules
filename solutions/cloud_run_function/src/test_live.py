@@ -73,19 +73,20 @@ def test_live_claude(processed: ProcessedContent, project_id: str, location: str
     prompt = "Extract all tabular line items, summarize total spending, and report if any department exceeded budget."
 
     # 1. Test Claude on Vertex AI (streamRawPredict)
-    claude_model = "claude-3-5-sonnet-v2@20241022"
-    print(f"\n📡 Calling Claude on Vertex: {claude_model} (:streamRawPredict)...")
+    claude_model = "claude-opus-4-7"
+    claude_location = "global"
+    print(f"\n📡 Calling Claude on Vertex: {claude_model} (location: {claude_location} -> :streamRawPredict)...")
     try:
         claude_res = ModelService.invoke_model(
             processed=processed,
             prompt=prompt,
             project_id=project_id,
-            location=location,
+            location=claude_location,
             model_name=claude_model,
             max_tokens=2048
         )
         print("\n" + "-" * 50)
-        print(f"✨ Claude 3.5 Sonnet Response ({claude_res.get('endpoint')}):")
+        print(f"✨ Claude Opus 4.7 Response ({claude_res.get('endpoint')}):")
         print("-" * 50)
         print(claude_res.get("extracted_text"))
         print("-" * 50)
@@ -94,19 +95,20 @@ def test_live_claude(processed: ProcessedContent, project_id: str, location: str
         print(f"⚠️ Claude on Vertex returned error: {e}")
 
     # 2. Test Gemini on Vertex AI (generateContent)
-    gemini_model = "gemini-2.0-flash"
-    print(f"\n📡 Calling Gemini on Vertex: {gemini_model} (:generateContent)...")
+    gemini_model = "gemini-3.5-flash"
+    gemini_location = "us-central1"
+    print(f"\n📡 Calling Gemini on Vertex: {gemini_model} (location: {gemini_location} -> :generateContent)...")
     try:
         gemini_res = ModelService.invoke_model(
             processed=processed,
             prompt=prompt,
             project_id=project_id,
-            location=location,
+            location=gemini_location,
             model_name=gemini_model,
             max_tokens=2048
         )
         print("\n" + "-" * 50)
-        print(f"✨ Gemini 2.0 Flash Response:")
+        print(f"✨ Gemini 3.5 Flash Response:")
         print("-" * 50)
         print(gemini_res.get("extracted_text"))
         print("-" * 50)

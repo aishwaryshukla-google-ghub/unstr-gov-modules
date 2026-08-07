@@ -63,7 +63,8 @@ class GCSService:
 
         req = urllib.request.Request(download_url, headers=headers)
         try:
-            with urllib.request.urlopen(req) as resp:
+            from .auth_service import get_ssl_context
+            with urllib.request.urlopen(req, context=get_ssl_context()) as resp:
                 if resp.status != 200:
                     raise RuntimeError(f"GCS Download failed with HTTP {resp.status}")
                 return resp.read(), filename
