@@ -1,106 +1,66 @@
 import io
-from .base import BaseDataHandler
+from .base import BaseDataHandler, ProcessedContent
 
 
 class DocxHandler(BaseDataHandler):
     """
     Handler for Microsoft Word (.docx) documents.
-    Extracts paragraphs, headings, and tables and renders them into structured PDF pages.
+    Extracts headings, paragraphs, and tables directly into structured Markdown text.
+    Bypasses PDF layout overhead and ensures zero loss of textual context.
     """
 
-    def convert_to_pdf(self, file_bytes: bytes, filename: str) -> bytes:
+    def process(self, file_bytes: bytes, filename: str) -> ProcessedContent:
         try:
             import docx
-            from reportlab.lib.pagesizes import letter
-            from reportlab.lib import colors
-            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-            doc_in = docx.Document(io.BytesIO(file_bytes))
+            doc = docx.Document(io.BytesIO(file_bytes))
+            md_lines = [f"--- START OF WORD DOCUMENT ({filename}) ---", ""]
 
-            buffer = io.BytesIO()
-            doc_out = SimpleDocTemplate(
-                buffer,
-                pagesize=letter,
-                rightMargin=40,
-                leftMargin=40,
-                topMargin=40,
-                bottomMargin=40
-            )
-
-            styles = getSampleStyleSheet()
-            title_style = ParagraphStyle(
-                "DocxTitle",
-                parent=styles["Heading1"],
-                fontSize=16,
-                leading=20,
-                textColor=colors.HexColor("#1a73e8"),
-                spaceAfter=12
-            )
-            h2_style = ParagraphStyle(
-                "DocxH2",
-                parent=styles["Heading2"],
-                fontSize=13,
-                leading=16,
-                textColor=colors.HexColor("#202124"),
-                spaceBefore=8,
-                spaceAfter=4
-            )
-            body_style = ParagraphStyle(
-                "DocxBody",
-                parent=styles["Normal"],
-                fontSize=10,
-                leading=14,
-                textColor=colors.HexColor("#202124"),
-                spaceAfter=6
-            )
-            cell_style = ParagraphStyle(
-                "DocxCell",
-                parent=styles["Normal"],
-                fontSize=8,
-                leading=10,
-                textColor=colors.HexColor("#202124")
-            )
-
-            story = [Paragraph(f"Document: {filename}", title_style), Spacer(1, 8)]
-
-            # 1. Process paragraphs
-            for p in doc_in.paragraphs:
+            # 1. Extract Paragraphs
+            for p in doc.paragraphs:
                 text = p.text.strip()
                 if not text:
                     continue
-                safe_text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                if p.style.name.startswith("Heading"):
-                    story.append(Paragraph(safe_text, h2_style))
+
+                if p.style and p.style.name.startswith("Heading 1"):
+                    md_lines.append(f"# {text}")
+                elif p.style and p.style.name.startswith("Heading 2"):
+                    md_lines.append(f"## {text}")
+                elif p.style and p.style.name.startswith("Heading 3"):
+                    md_lines.append(f"### {text}")
                 else:
-                    story.append(Paragraph(safe_text, body_style))
+                    md_lines.append(text)
 
-            # 2. Process tables
-            for table in doc_in.tables:
-                story.append(Spacer(1, 6))
-                t_data = []
-                for row_idx, row in enumerate(table.rows):
-                    row_cells = []
-                    for cell in row.cells:
-                        c_text = cell.text.strip().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                        row_cells.append(Paragraph(c_text, cell_style))
-                    t_data.append(row_cells)
+            # 2. Extract Tables into Markdown Tables
+            if doc.tables:
+                md_lines.append("\n### Document Tables:\n")
+                for t_idx, table in enumerate(doc.tables):
+                    md_lines.append(f"#### Table {t_idx + 1}")
+                    for r_idx, row in enumerate(table.rows):
+                        cells = [cell.text.strip().replace("\n", " ") for cell in row.cells]
+                        md_lines.append("| " + " | ".join(cells) + " |")
+                        if r_idx == 0:
+                            md_lines.append("| " + " | ".join(["---"] * len(cells)) + " |")
+                    md_lines.append("")
 
-                if t_data:
-                    t = Table(t_data)
-                    t.setStyle(TableStyle([
-                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f3f4")),
-                        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#dadce0")),
-                        ("TOPPADDING", (0, 0), (-1, -1), 3),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                    ]))
-                    story.append(t)
-                    story.append(Spacer(1, 8))
+            md_lines.append(f"--- END OF WORD DOCUMENT ({filename}) ---")
+            combined_text = "\n".join(md_lines)
 
-            doc_out.build(story)
-            return buffer.getvalue()
+            return ProcessedContent(
+                raw_bytes=file_bytes,
+                mime_type="text/markdown",
+                text_content=combined_text,
+                source_filename=filename,
+                is_text=True,
+                converted_to_pdf=False
+            )
 
-        except ImportError:
-            # Fallback simple text-based rendering
-            from .text_md_handler import TextMarkdownHandler
-            return TextMarkdownHandler().convert_to_pdf(b"Word document content (python-docx not installed).", filename)
+        except Exception as e:
+            return ProcessedContent(
+                raw_bytes=file_bytes,
+                mime_type="text/plain",
+                text_content=f"Word document parse fallback ({filename}): {str(e)}",
+                source_filename=filename,
+                is_text=True,
+                converted_to_pdf=False
+            )
