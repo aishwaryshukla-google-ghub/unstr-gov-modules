@@ -66,12 +66,12 @@ class ModelService:
         max_tokens: int
     ) -> Dict[str, Any]:
         """
-        Claude on Vertex AI Messages API (as shown in screenshot).
-        POST https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/anthropic/models/{model}:rawPredict
+        Claude on Vertex AI Streaming Messages API:
+        POST https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/anthropic/models/{model}:streamRawPredict
         """
         endpoint_url = (
             f"https://{location}-aiplatform.googleapis.com/v1/"
-            f"projects/{project}/locations/{location}/publishers/anthropic/models/{model_name}:rawPredict"
+            f"projects/{project}/locations/{location}/publishers/anthropic/models/{model_name}:streamRawPredict"
         )
 
         content_parts = []
@@ -133,7 +133,7 @@ class ModelService:
             "Content-Type": "application/json"
         }
 
-        logger.info(f"Invoking Claude on Vertex endpoint: {endpoint_url}")
+        logger.info(f"Invoking Claude on Vertex streamRawPredict endpoint: {endpoint_url}")
         req = urllib.request.Request(
             endpoint_url,
             data=json.dumps(payload).encode("utf-8"),
@@ -143,24 +143,65 @@ class ModelService:
 
         try:
             with urllib.request.urlopen(req) as resp:
-                resp_data = json.loads(resp.read().decode("utf-8"))
-                # Extract Claude text from content array
-                extracted_text = ""
-                for part in resp_data.get("content", []):
-                    if part.get("type") == "text":
-                        extracted_text += part.get("text", "")
+                raw_bytes = resp.read()
+                raw_str = raw_bytes.decode("utf-8")
+
+                extracted_text = []
+                usage = {}
+                events = []
+
+                # Parse Server-Sent Events (SSE) stream or JSON array
+                for line in raw_str.splitlines():
+                    clean_line = line.strip()
+                    if not clean_line:
+                        continue
+
+                    # SSE data prefix
+                    if clean_line.startswith("data:"):
+                        json_str = clean_line[5:].strip()
+                    else:
+                        json_str = clean_line
+
+                    try:
+                        event = json.loads(json_str)
+                        events.append(event)
+
+                        # Extract text delta from streaming events
+                        if event.get("type") == "content_block_delta":
+                            delta = event.get("delta", {})
+                            if delta.get("type") == "text_delta":
+                                extracted_text.append(delta.get("text", ""))
+
+                        # Extract usage statistics
+                        if "usage" in event:
+                            usage.update(event["usage"])
+                        if "message" in event and "usage" in event["message"]:
+                            usage.update(event["message"]["usage"])
+
+                        # Direct non-streaming content block fallback
+                        if "content" in event:
+                            for part in event.get("content", []):
+                                if part.get("type") == "text":
+                                    extracted_text.append(part.get("text", ""))
+
+                    except json.JSONDecodeError:
+                        continue
+
+                final_text = "".join(extracted_text)
 
                 return {
                     "success": True,
                     "model": model_name,
-                    "extracted_text": extracted_text,
-                    "usage": resp_data.get("usage", {}),
-                    "raw_response": resp_data
+                    "endpoint": ":streamRawPredict",
+                    "extracted_text": final_text,
+                    "usage": usage,
+                    "events_count": len(events)
                 }
+
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8")
             logger.error(f"Claude API error HTTP {e.code}: {err_body}")
-            raise RuntimeError(f"Claude on Vertex failed with HTTP {e.code}: {err_body}")
+            raise RuntimeError(f"Claude on Vertex streamRawPredict failed with HTTP {e.code}: {err_body}")
 
     @classmethod
     def _call_gemini_vertex(
