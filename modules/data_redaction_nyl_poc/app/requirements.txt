@@ -1,2 +1,5 @@
 functions-framework==3.8.1
 google-cloud-dlp==3.12.3
+google-cloud-storage==2.10.0
+PyPDF2==3.0.1
+python-docx==0.8.11
