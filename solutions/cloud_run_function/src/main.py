@@ -45,10 +45,8 @@ def describe_iceberg_table(
     project_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Queries official Apache Iceberg REST OpenAPI Table Describe endpoint:
-    GET /iceberg/v1/restcatalog/v1/{catalog}/namespaces/{namespace}/tables/{table}
-    Retrieves full Iceberg schema (columns, datatypes), S3/GCS data file location,
-    active snapshot ID, and partition specifications.
+    Queries verified BigLake Iceberg REST Catalog Table Describe endpoint:
+    GET https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/projects/{project_id}/catalogs/{catalog_name}/namespaces/{namespace}/tables/{table_name}
     """
     session, detected_proj = get_auth_session()
     target_project = (
@@ -84,52 +82,43 @@ def describe_iceberg_table(
         table_result["error"] = "Google Cloud runtime credentials not available in local environment."
         return table_result
 
-    # Standard Apache Iceberg REST OpenAPI candidate endpoints
-    candidate_tbl_urls = [
-        f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/{catalog_name}/namespaces/{namespace}/tables/{table_name}",
-        f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/namespaces/{namespace}/tables/{table_name}?warehouse={catalog_name}",
-        f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/{target_project}/{catalog_name}/namespaces/{namespace}/tables/{table_name}",
-        f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/{catalog_name}/namespaces/{namespace}/tables/{table_name}?alt=json",
-    ]
+    # Exact Verified URL (Primary #1)
+    primary_tbl_url = f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/projects/{target_project}/catalogs/{catalog_name}/namespaces/{namespace}/tables/{table_name}"
+    table_result["api_endpoints_called"].append({"action": "describe_table", "url": primary_tbl_url})
+    
+    try:
+        resp = session.get(primary_tbl_url, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            raw_json = resp.json()
+            table_result["described_successfully"] = True
+            table_result["raw_metadata"] = raw_json
 
-    for url in candidate_tbl_urls:
-        table_result["api_endpoints_called"].append({"action": "describe_table", "url": url})
-        try:
-            resp = session.get(url, headers=headers, timeout=12)
-            if resp.status_code == 200:
-                raw_json = resp.json()
-                table_result["described_successfully"] = True
-                table_result["raw_metadata"] = raw_json
+            # Parse Iceberg schema & columns
+            metadata = raw_json.get("metadata") or raw_json
+            table_result["table_location"] = metadata.get("location")
+            table_result["current_snapshot_id"] = metadata.get("current-snapshot-id") or metadata.get("currentSnapshotId")
+            table_result["partition_specs"] = metadata.get("partition-specs") or metadata.get("partitionSpecs") or []
 
-                # Parse Iceberg schema & columns
-                metadata = raw_json.get("metadata") or raw_json
-                table_result["table_location"] = metadata.get("location")
-                table_result["current_snapshot_id"] = metadata.get("current-snapshot-id") or metadata.get("currentSnapshotId")
-                table_result["partition_specs"] = metadata.get("partition-specs") or metadata.get("partitionSpecs") or []
-
-                schema = metadata.get("schema") or (metadata.get("schemas", [{}])[0] if metadata.get("schemas") else {})
-                fields = schema.get("fields", [])
-                
-                parsed_cols = []
-                for f in fields:
-                    parsed_cols.append({
-                        "id": f.get("id"),
-                        "name": f.get("name"),
-                        "type": str(f.get("type")),
-                        "required": f.get("required", False),
-                        "doc": f.get("doc", "")
-                    })
-                
-                table_result["columns"] = parsed_cols
-                table_result["columns_count"] = len(parsed_cols)
-                table_result["error"] = None
-                break
-            elif resp.status_code == 404:
-                table_result["error"] = f"Table '{table_name}' in namespace '{namespace}' returned HTTP 404 on endpoint: {url}"
-            else:
-                table_result["error"] = f"API returned HTTP {resp.status_code}: {resp.text}"
-        except Exception as e:
-            table_result["error"] = f"Exception querying {url}: {str(e)}"
+            schema = metadata.get("schema") or (metadata.get("schemas", [{}])[0] if metadata.get("schemas") else {})
+            fields = schema.get("fields", [])
+            
+            parsed_cols = []
+            for f in fields:
+                parsed_cols.append({
+                    "id": f.get("id"),
+                    "name": f.get("name"),
+                    "type": str(f.get("type")),
+                    "required": f.get("required", False),
+                    "doc": f.get("doc", "")
+                })
+            
+            table_result["columns"] = parsed_cols
+            table_result["columns_count"] = len(parsed_cols)
+            table_result["error"] = None
+        else:
+            table_result["error"] = f"HTTP {resp.status_code}: {resp.text}"
+    except Exception as e:
+        table_result["error"] = f"Exception querying {primary_tbl_url}: {str(e)}"
 
     return table_result
 
@@ -141,11 +130,15 @@ def list_catalog_namespaces_and_tables(
     describe_table_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Comprehensive Inspector for BigLake Iceberg REST Catalog:
-    1. Inspects Catalog Control Plane & Refresh Status via Management API (/extensions/)
-    2. Lists all Namespaces (Schemas) via Apache Iceberg OpenAPI (/v1/{catalog}/namespaces)
-    3. Lists all Tables inside each discovered Namespace via Apache Iceberg OpenAPI (/v1/{catalog}/namespaces/{ns}/tables)
-    4. Describes detailed Iceberg schema & columns for specific tables (e.g. 'addresses')
+    Comprehensive Inspector for BigLake Iceberg REST Catalog using EXACT Verified Endpoints:
+    1. Management Status:
+       GET https://biglake.googleapis.com/iceberg/v1/restcatalog/extensions/projects/{project}/catalogs/{catalog}?alt=json
+    2. Namespaces List:
+       GET https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/projects/{project}/catalogs/{catalog}/namespaces
+    3. Tables List:
+       GET https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/projects/{project}/catalogs/{catalog}/namespaces/{namespace}/tables
+    4. Table Describe:
+       GET https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/projects/{project}/catalogs/{catalog}/namespaces/{namespace}/tables/{table}
     """
     session, detected_proj = get_auth_session()
     
@@ -203,7 +196,7 @@ def list_catalog_namespaces_and_tables(
     result["api_endpoints_called"].append({"action": "get_catalog_management", "url": cat_url})
     
     try:
-        cat_resp = session.get(cat_url, headers=headers, timeout=12)
+        cat_resp = session.get(cat_url, headers=headers, timeout=15)
         if cat_resp.status_code == 200:
             cat_data = cat_resp.json()
             result["catalog_metadata"] = cat_data
@@ -222,33 +215,26 @@ def list_catalog_namespaces_and_tables(
         result["errors"].append(f"Failed to query catalog metadata: {str(e)}")
 
     # =========================================================================
-    # Step 2: Query Namespaces (Schemas) via Apache Iceberg REST OpenAPI
+    # Step 2: Query Namespaces List API (Exact Verified URL)
     # =========================================================================
-    ns_candidate_urls = [
-        f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/{catalog_name}/namespaces",
-        f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/namespaces?warehouse={catalog_name}",
-        f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/namespaces?prefix={catalog_name}",
-        f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/{target_project}/{catalog_name}/namespaces",
-        f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/{catalog_name}/namespaces?alt=json",
-    ]
+    ns_url = f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/projects/{target_project}/catalogs/{catalog_name}/namespaces"
+    result["api_endpoints_called"].append({"action": "list_namespaces", "url": ns_url})
     
     discovered_namespaces = []
-    for ns_url in ns_candidate_urls:
-        try:
-            ns_resp = session.get(ns_url, headers=headers, timeout=12)
-            result["api_endpoints_called"].append({"action": "list_namespaces", "url": ns_url, "status": ns_resp.status_code})
-            
-            if ns_resp.status_code == 200:
-                ns_data = ns_resp.json()
-                raw_namespaces = ns_data.get("namespaces", [])
-                for item in raw_namespaces:
-                    if isinstance(item, list) and len(item) > 0:
-                        discovered_namespaces.append(str(item[0]))
-                    elif isinstance(item, str):
-                        discovered_namespaces.append(item)
-                break
-        except Exception as e:
-            result["errors"].append(f"Namespace query error on {ns_url}: {str(e)}")
+    try:
+        ns_resp = session.get(ns_url, headers=headers, timeout=15)
+        if ns_resp.status_code == 200:
+            ns_data = ns_resp.json()
+            raw_namespaces = ns_data.get("namespaces", [])
+            for item in raw_namespaces:
+                if isinstance(item, list) and len(item) > 0:
+                    discovered_namespaces.append(str(item[0]))
+                elif isinstance(item, str):
+                    discovered_namespaces.append(item)
+        else:
+            result["errors"].append(f"Namespaces API ({ns_url}) returned HTTP {ns_resp.status_code}: {ns_resp.text}")
+    except Exception as e:
+        result["errors"].append(f"Failed to query namespaces API: {str(e)}")
 
     if not discovered_namespaces and specific_namespace:
         discovered_namespaces = [specific_namespace]
@@ -259,40 +245,33 @@ def list_catalog_namespaces_and_tables(
     result["namespaces_count"] = len(result["namespaces"])
 
     # =========================================================================
-    # Step 3: Query Tables in each Namespace via Apache Iceberg REST OpenAPI
+    # Step 3: Query Tables in each Namespace (Exact Verified URL)
     # =========================================================================
     total_tables = 0
     tables_by_namespace = {}
 
     for ns in result["namespaces"]:
-        tbl_candidate_urls = [
-            f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/{catalog_name}/namespaces/{ns}/tables",
-            f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/namespaces/{ns}/tables?warehouse={catalog_name}",
-            f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/{target_project}/{catalog_name}/namespaces/{ns}/tables",
-            f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/{catalog_name}/namespaces/{ns}/tables?alt=json",
-        ]
+        tbl_url = f"https://biglake.googleapis.com/iceberg/v1/restcatalog/v1/projects/{target_project}/catalogs/{catalog_name}/namespaces/{ns}/tables"
+        result["api_endpoints_called"].append({
+            "action": f"list_tables_in_{ns}",
+            "url": tbl_url
+        })
         
         tables_found = []
-        for tbl_url in tbl_candidate_urls:
-            try:
-                tbl_resp = session.get(tbl_url, headers=headers, timeout=12)
-                result["api_endpoints_called"].append({
-                    "action": f"list_tables_in_{ns}",
-                    "url": tbl_url,
-                    "status": tbl_resp.status_code
-                })
-                
-                if tbl_resp.status_code == 200:
-                    tbl_data = tbl_resp.json()
-                    identifiers = tbl_data.get("identifiers", [])
-                    for ident in identifiers:
-                        if isinstance(ident, dict) and "name" in ident:
-                            tables_found.append(ident["name"])
-                        elif isinstance(ident, str):
-                            tables_found.append(ident)
-                    break
-            except Exception as e:
-                result["errors"].append(f"Table query error for namespace {ns}: {str(e)}")
+        try:
+            tbl_resp = session.get(tbl_url, headers=headers, timeout=15)
+            if tbl_resp.status_code == 200:
+                tbl_data = tbl_resp.json()
+                identifiers = tbl_data.get("identifiers", [])
+                for ident in identifiers:
+                    if isinstance(ident, dict) and "name" in ident:
+                        tables_found.append(ident["name"])
+                    elif isinstance(ident, str):
+                        tables_found.append(ident)
+            else:
+                result["errors"].append(f"Tables API for namespace {ns} returned HTTP {tbl_resp.status_code}: {tbl_resp.text}")
+        except Exception as e:
+            result["errors"].append(f"Failed to query tables in {ns}: {str(e)}")
 
         tables_by_namespace[ns] = tables_found
         total_tables += len(tables_found)
@@ -301,7 +280,7 @@ def list_catalog_namespaces_and_tables(
     result["tables_count"] = total_tables
 
     # =========================================================================
-    # Step 4: Describe Target Table Schema & Columns (e.g. 'addresses')
+    # Step 4: Describe Target Table Schema & Columns (Exact Verified URL)
     # =========================================================================
     target_table_to_describe = describe_table_name or "addresses"
     primary_ns = specific_namespace or (result["namespaces"][0] if result["namespaces"] else "ingest_oracle_orau11_ac0101")
