@@ -150,3 +150,71 @@ resource "google_storage_bucket_iam_member" "function_bucket_reader" {
   role   = "roles/storage.objectViewer"
   member = "serviceAccount:${var.service_account_email}"
 }
+
+# 6. BigQuery View (For Real-Time Demo)
+resource "google_bigquery_table" "redacted_documents_view" {
+  dataset_id = var.dataset_id
+  table_id   = "redacted_documents_view"
+  project    = var.project_id
+
+  view {
+    query = <<EOF
+SELECT 
+  uri,
+  content_type,
+  `${var.project_id}.${var.dataset_id}.dlp_redact_text`(uri) AS redacted_text
+FROM `${var.project_id}.${var.dataset_id}.unstructured_docs`
+WHERE uri LIKE '%.docx' OR uri LIKE '%.pdf'
+
+
+# 6. BigQuery View (For Real-Time Demo)
+resource "google_bigquery_table" "redacted_documents_view" {
+  dataset_id = var.dataset_id
+  table_id   = "redacted_documents_view"
+  project    = var.project_id
+
+  view {
+    query = <<EOF
+SELECT 
+  uri,
+  content_type,
+  `${var.project_id}.${var.dataset_id}.dlp_redact_text`(uri) AS redacted_text
+FROM `${var.project_id}.${var.dataset_id}.unstructured_docs`
+WHERE uri LIKE "%.docx" OR uri LIKE "%.pdf"
+EOF
+    use_legacy_sql = false
+  }
+
+  depends_on = [
+    google_bigquery_table.unstructured_docs,
+    google_bigquery_routine.remote_function
+  ]
+}
+
+# 7. Scheduled Query (To physically store data nightly)
+resource "google_bigquery_data_transfer_config" "scheduled_redaction" {
+  display_name           = "NYL Nightly Unstructured Redaction"
+  location               = var.region
+  data_source_id         = "scheduled_query"
+  schedule               = "every 24 hours"
+  destination_dataset_id = var.dataset_id
+  project                = var.project_id
+  service_account_name   = var.service_account_email
+
+  params = {
+    query = <<EOF
+CREATE OR REPLACE TABLE `${var.project_id}.${var.dataset_id}.redacted_documents` AS
+SELECT 
+  uri,
+  content_type,
+  `${var.project_id}.${var.dataset_id}.dlp_redact_text`(uri) AS redacted_text
+FROM `${var.project_id}.${var.dataset_id}.unstructured_docs`
+WHERE uri LIKE "%.docx" OR uri LIKE "%.pdf"
+EOF
+  }
+
+  depends_on = [
+    google_bigquery_table.unstructured_docs,
+    google_bigquery_routine.remote_function
+  ]
+}
