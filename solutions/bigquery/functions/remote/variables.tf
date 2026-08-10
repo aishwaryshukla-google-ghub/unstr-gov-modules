@@ -57,7 +57,11 @@ variable "arguments" {
   }))
   default = [
     {
-      name      = "input_text"
+      name      = "prompt"
+      data_type = "{\"typeKind\" : \"STRING\"}"
+    },
+    {
+      name      = "gcs_uri"
       data_type = "{\"typeKind\" : \"STRING\"}"
     }
   ]
