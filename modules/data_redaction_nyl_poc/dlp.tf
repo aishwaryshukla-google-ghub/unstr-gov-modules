@@ -9,7 +9,7 @@ resource "google_data_loss_prevention_inspect_template" "nyl_inspect_template" {
         name = "NYL_ID"
       }
       regex {
-        pattern = "T[A-Za-z0-9]{6}"
+        pattern = "\\bT[A-Za-z0-9]{6}\\b"
       }
     }
 
