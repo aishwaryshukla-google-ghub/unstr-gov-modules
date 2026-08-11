@@ -23,26 +23,6 @@ output "service_directory_service_id" {
   value       = module.private_bridge.service_directory_service_id
 }
 
-output "crf_vpc_connector_id" {
-  description = "The Resource Manager ID of the Serverless VPC Access connector for Cloud Run."
-  value       = try(module.crf_vpc_connector[0].connector_id, null)
-}
-
-output "crf_vpc_connector_name" {
-  description = "The name of the Serverless VPC Access connector for Cloud Run."
-  value       = try(module.crf_vpc_connector[0].connector_name, null)
-}
-
-output "crf_vpc_connector_state" {
-  description = "The state of the Serverless VPC Access connector for Cloud Run."
-  value       = try(module.crf_vpc_connector[0].state, null)
-}
-
-output "crf_dns_peering_zone_id" {
-  description = "The ID of the Cloud DNS Peering Zone for MuleSoft if enabled."
-  value       = try(module.crf_dns_peering[0].zone_id, null)
-}
-
 output "cloud_run_function_uri" {
   description = "The HTTP trigger URL endpoint for the Cloud Run Function."
   value       = module.cloud_run_function.function_uri
@@ -77,3 +57,4 @@ output "lakehouse_status_service_sa" {
   description = "The dedicated runtime execution Service Account email for the Lakehouse Status Function."
   value       = module.lakehouse_status_sa.email
 }
+

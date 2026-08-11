@@ -109,6 +109,9 @@ module "cloud_run_function" {
   build_service_account          = var.build_service_account != null ? var.build_service_account : local.resolved_sa_email
   vpc_connector                  = var.vpc_connector
   vpc_connector_egress_settings  = var.vpc_connector_egress_settings
+  subnetwork                     = var.subnetwork
+  vpc_network                    = var.vpc_network
+  network_tags                   = var.network_tags
   event_trigger                  = var.event_trigger
   invokers                       = local.resolved_invokers
   invoker_role                   = var.invoker_role

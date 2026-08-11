@@ -139,6 +139,30 @@ variable "service_account_email" {
   default     = null
 }
 
+# -----------------------------------------------------------------------------
+# DIRECT VPC EGRESS CONFIGURATION
+# -----------------------------------------------------------------------------
+variable "subnetwork" {
+  description = "The subnetwork name or URI for Direct VPC Egress (e.g. projects/<proj>/regions/<reg>/subnetworks/<subnet>)."
+  type        = string
+  default     = null
+}
+
+variable "vpc_network" {
+  description = "Optional VPC network name or URI for Direct VPC Egress."
+  type        = string
+  default     = null
+}
+
+variable "network_tags" {
+  description = "Optional network tags applied to Direct VPC Egress traffic for firewall rules."
+  type        = list(string)
+  default     = []
+}
+
+# -----------------------------------------------------------------------------
+# LEGACY SERVERLESS VPC ACCESS CONNECTOR (if not using Direct VPC Egress)
+# -----------------------------------------------------------------------------
 variable "vpc_connector" {
   description = "The Serverless VPC Access connector path or ID."
   type        = string

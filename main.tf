@@ -3,11 +3,11 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = ">= 5.0.0, < 8.0.0"
+      version = "7.39.0"
     }
     google-beta = {
       source  = "hashicorp/google-beta"
-      version = ">= 5.0.0, < 8.0.0"
+      version = "7.39.0"
     }
     archive = {
       source  = "hashicorp/archive"
@@ -228,52 +228,19 @@ module "federated_catalog" {
 }
 
 # =============================================================================
-# 3.1 UNSTRUCTURED GOVERNANCE BIGQUERY DATASET
+# 4. UNSTRUCTURED GOVERNANCE CLOUD RUN FUNCTION SOLUTION
+# Encapsulated solution recipe (manages source bucket, zip packaging & module)
 # =============================================================================
-resource "google_bigquery_dataset" "unstructured_governance" {
-  project       = var.project_id
-  dataset_id    = "nyl_unstructured_governance_dev"
-  friendly_name = "NYL Unstructured Governance Dataset"
-  description   = "Dataset hosting BigQuery remote functions and metadata for unstructured governance"
-  location      = var.region
-}
-
-# =============================================================================
-# 4. UNSTRUCTURED GOVERNANCE CLOUD RUN FUNCTION & DEDICATED VPC EGRESS
-# Serverless VPC Access connector + Cloud Run Function with private routing.
-# =============================================================================
-
-# Serverless VPC Access Connector dedicated for Cloud Run Function outbound egress
-module "crf_vpc_connector" {
-  count          = var.create_crf_vpc_connector ? 1 : 0
-  source         = "./modules/vpc_connector"
-  project_id     = var.project_id
-  region         = var.region
-  connector_name = var.crf_vpc_connector_name
-  network        = basename(var.crf_vpc_network)
-  ip_cidr_range  = var.crf_vpc_connector_cidr
-}
-
-# Optional Cloud DNS Peering Zone to resolve MuleSoft Flex Gateway domain in peer VPC
-module "crf_dns_peering" {
-  count              = var.enable_crf_dns_peering && var.mulesoft_vpc_network != null ? 1 : 0
-  source             = "./modules/dns_peering"
-  project_id         = var.project_id
-  zone_name          = "mulesoft-dns-peering"
-  dns_name           = var.mulesoft_dns_domain
-  local_network_urls = [var.crf_vpc_network]
-  target_network_url = var.mulesoft_vpc_network
-}
-
 module "cloud_run_function" {
-  source                        = "./solutions/cloud_run_function"
-  project_id                    = var.project_id
-  region                        = var.region
-  deploy_sa_email               = var.deploy_sa_email
-  create_service_account        = true
-  service_account_id            = "nyl-gov-crf-sa"
-  vpc_connector                 = var.create_crf_vpc_connector ? module.crf_vpc_connector[0].connector_id : null
-  vpc_connector_egress_settings = var.create_crf_vpc_connector ? var.crf_vpc_connector_egress_settings : null
+  source                 = "./solutions/cloud_run_function"
+  project_id             = var.project_id
+  region                 = var.region
+  deploy_sa_email        = var.deploy_sa_email
+  create_service_account = true
+  service_account_id     = "nyl-gov-crf-sa"
+  subnetwork             = var.crf_subnetwork
+  vpc_network            = var.crf_vpc_network
+  network_tags           = var.crf_network_tags
 }
 
 # =============================================================================
@@ -332,3 +299,7 @@ module "lakehouse_catalog_status" {
     module.federated_catalog
   ]
 }
+
+
+
+

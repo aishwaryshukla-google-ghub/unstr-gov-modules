@@ -141,6 +141,27 @@ variable "vpc_connector_egress_settings" {
   default     = null
 }
 
+# -----------------------------------------------------------------------------
+# DIRECT VPC EGRESS CONFIGURATION
+# -----------------------------------------------------------------------------
+variable "subnetwork" {
+  description = "The subnetwork name or URI for Direct VPC Egress (e.g. projects/<proj>/regions/<reg>/subnetworks/<subnet>)."
+  type        = string
+  default     = null
+}
+
+variable "vpc_network" {
+  description = "Optional VPC network name or URI for Direct VPC Egress."
+  type        = string
+  default     = null
+}
+
+variable "network_tags" {
+  description = "Optional network tags applied to Direct VPC Egress traffic for firewall rules."
+  type        = list(string)
+  default     = []
+}
+
 variable "event_trigger" {
   description = "Eventarc trigger configuration object."
   type = object({

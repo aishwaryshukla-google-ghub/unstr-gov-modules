@@ -12,18 +12,40 @@ logger = logging.getLogger("auth_service")
 
 def get_ssl_context():
     """
-    Creates an SSL context that handles macOS certificate bundles, certifi,
+    Creates an SSL context that handles corporate proxies, custom CA bundles,
     and dev environments gracefully.
     """
+    # 1. Allow explicit disable via env var (for corporate proxies/dev)
+    if os.environ.get("DISABLE_SSL_VERIFY", "").lower() in ("true", "1", "yes"):
+        ctx = ssl._create_unverified_context()
+        ctx.check_hostname = False
+        return ctx
+
+    # 2. Check for corporate CA certificate bundle
+    ca_bundle = (
+        os.environ.get("SSL_CERT_FILE")
+        or os.environ.get("REQUESTS_CA_BUNDLE")
+        or os.environ.get("CURL_CA_BUNDLE")
+    )
+    if ca_bundle and os.path.exists(ca_bundle):
+        try:
+            return ssl.create_default_context(cafile=ca_bundle)
+        except Exception:
+            pass
+
+    # 3. Try certifi bundle
     try:
         import certifi
         return ssl.create_default_context(cafile=certifi.where())
-    except ImportError:
+    except Exception:
         pass
+
+    # 4. Fallback
     try:
         return ssl.create_default_context()
     except Exception:
         return ssl._create_unverified_context()
+
 
 
 class AuthService:

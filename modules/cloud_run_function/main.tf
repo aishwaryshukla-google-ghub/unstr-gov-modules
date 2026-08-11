@@ -1,7 +1,8 @@
 # -----------------------------------------------------------------------------
 # CLOUD RUN FUNCTION (CLOUD FUNCTIONS GEN 2) MODULE
 # Deploys a Cloud Run Function (Cloud Functions 2nd Gen) with configurable
-# build settings, runtime configuration, VPC networking, and Eventarc triggers.
+# build settings, runtime configuration, Direct VPC Egress, VPC connector,
+# and Eventarc triggers.
 # -----------------------------------------------------------------------------
 
 resource "google_cloudfunctions2_function" "function" {
@@ -61,8 +62,20 @@ resource "google_cloudfunctions2_function" "function" {
     ingress_settings               = var.ingress_settings
     all_traffic_on_latest_revision = var.all_traffic_on_latest_revision
     service_account_email          = var.service_account_email
-    vpc_connector                  = var.vpc_connector
-    vpc_connector_egress_settings  = var.vpc_connector_egress_settings
+
+    # Legacy VPC Access Connector (mutually exclusive with Direct VPC Egress)
+    vpc_connector                 = var.subnetwork == null ? var.vpc_connector : null
+    vpc_connector_egress_settings = var.subnetwork == null ? var.vpc_connector_egress_settings : null
+
+    # Direct VPC Egress Network Interface
+    dynamic "direct_vpc_network_interface" {
+      for_each = var.subnetwork != null || var.vpc_network != null ? [1] : []
+      content {
+        network    = var.vpc_network
+        subnetwork = var.subnetwork
+        tags       = var.network_tags
+      }
+    }
 
     dynamic "secret_environment_variables" {
       for_each = var.secret_environment_variables
