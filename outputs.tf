@@ -58,3 +58,13 @@ output "lakehouse_status_service_sa" {
   value       = module.lakehouse_status_sa.email
 }
 
+output "dataplex_data_product_ids" {
+  description = "A map of created Dataplex Data Product IDs."
+  value       = module.dataplex_data_products.data_products
+}
+
+output "dataplex_data_product_asset_ids" {
+  description = "A map of created Dataplex Data Product Asset IDs."
+  value       = module.dataplex_data_product_assets.data_product_assets
+}
+

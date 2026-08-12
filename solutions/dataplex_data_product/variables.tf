@@ -1,24 +1,18 @@
 variable "project_id" {
-  description = "The Google Cloud project ID."
   type        = string
+  description = "GCP Project ID where Dataplex data products are created"
   default     = "nyl-pr-dbx-data-dev-01"
 }
 
 variable "region" {
-  description = "The target GCP region (e.g., us-east4 or us-east1)."
   type        = string
+  description = "Primary GCP Region"
   default     = "us-east4"
 }
 
-variable "deploy_sa_email" {
-  description = "The Harness IACM deployment service account email automatically passed by Harness pipeline."
+variable "location" {
   type        = string
-  default     = null
-}
-
-variable "dataplex_location" {
-  description = "The Dataplex Data Product location (e.g. 'us', 'us-east4')."
-  type        = string
+  description = "Dataplex Data Product location (e.g. 'us', 'us-east4')"
   default     = "us"
 }
 
@@ -36,7 +30,7 @@ variable "data_products" {
     })))
   }))
   default     = {}
-  description = "Map of Dataplex Data Products to manage in the environment"
+  description = "Map of Dataplex Data Products to manage"
 }
 
 variable "data_product_assets" {

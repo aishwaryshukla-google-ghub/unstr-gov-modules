@@ -1,0 +1,45 @@
+# =============================================================================
+# Dataplex Data Products & Assets Configuration Sample for unstr-gov-modules
+# =============================================================================
+
+dataplex_location = "us"
+
+data_products = {
+  "unstructured-claims-product" = {
+    location     = "us"
+    display_name = "UNSTRUCTURED-CLAIMS-DATA-PRODUCT"
+    description  = "Curated data product containing unstructured claims and patent analytics."
+    labels = {
+      client    = "nyl"
+      stream    = "ws2"
+      lifecycle = "dev"
+    }
+    owner_emails = [
+      "aishwaryshukla@google.com"
+    ]
+    # In client environments without permission to create new Google Groups:
+    # Option A: Reference existing corporate AD/Okta synced Google Group emails
+    # Option B: Omit access_groups / leave empty {} to publish catalog metadata
+    access_groups = {
+      "claims-readers" = {
+        display_name = "Claims Data Readers"
+        description  = "Read-only access for claims analysts"
+        google_group = "nyl-data-consumers@example.com"
+      }
+    }
+  }
+}
+
+data_product_assets = {
+  "unstructured-claims-product" = {
+    "ext-tbl-unstructured-metadata" = {
+      resource = "//bigquery.googleapis.com/projects/nyl-pr-dbx-data-dev-01/datasets/bq_omni_test_dtst/tables/ext_tbl_omni_unstructured_metadata"
+      access_group_configs = [
+        {
+          access_group = "claims-readers"
+          iam_roles    = ["roles/bigquery.dataViewer"]
+        }
+      ]
+    }
+  }
+}

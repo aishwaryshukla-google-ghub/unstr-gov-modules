@@ -300,6 +300,24 @@ module "lakehouse_catalog_status" {
   ]
 }
 
+# =============================================================================
+# 8. DATAPLEX DATA PRODUCTS & ASSETS
+# Manages curated business data products and attaches BigQuery datasets/tables and GCS buckets.
+# =============================================================================
+module "dataplex_data_products" {
+  source        = "./modules/dataplex/dataplex-data-product"
+  project_id    = var.project_id
+  data_products = var.data_products
+}
+
+module "dataplex_data_product_assets" {
+  source              = "./modules/dataplex/dataplex-data-product-asset"
+  project_id          = var.project_id
+  location            = var.dataplex_location
+  data_product_assets = var.data_product_assets
+  depends_on          = [module.dataplex_data_products]
+}
+
 
 
 
