@@ -22,22 +22,3 @@ import {
   id = "projects/nyl-pr-dbx-data-dev-01/locations/us-east1/functions/nyl-sample-flask-app"
   to = module.data_redaction_nyl_poc.google_cloudfunctions2_function.nyl_flask_app_cloud_function
 }
-
-import {
-  id = "projects/nyl-pr-dbx-data-dev-01/datasets/test_dtst/routines/dlp_redact_text"
-  to = module.data_redaction_nyl_poc.google_bigquery_routine.remote_function
-}
-
-import {
-  id = "projects/nyl-pr-dbx-data-dev-01/datasets/test_dtst/tables/unstructured_docs"
-  to = module.data_redaction_nyl_poc.google_bigquery_table.unstructured_docs
-}
-
-import {
-  id = "projects/nyl-pr-dbx-data-dev-01/datasets/test_dtst/tables/redacted_documents_view"
-  to = module.data_redaction_nyl_poc.google_bigquery_table.redacted_documents_view
-}
-import {
-  id = "projects/nyl-pr-dbx-data-dev-01/locations/us-east1/functions/nyl-mcp-server"
-  to = module.data_redaction_nyl_poc.google_cloudfunctions2_function.nyl_mcp_server
-}
