@@ -7,6 +7,7 @@ from .text_md_handler import TextMarkdownHandler
 from .csv_handler import CSVHandler
 from .excel_handler import ExcelHandler
 from .docx_handler import DocxHandler
+from .pptx_handler import PPTXHandler
 
 __all__ = [
     "BaseDataHandler",
@@ -19,5 +20,6 @@ __all__ = [
     "TextMarkdownHandler",
     "CSVHandler",
     "ExcelHandler",
-    "DocxHandler"
+    "DocxHandler",
+    "PPTXHandler"
 ]

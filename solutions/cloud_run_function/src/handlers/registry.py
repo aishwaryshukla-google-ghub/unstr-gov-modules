@@ -7,6 +7,7 @@ from .text_md_handler import TextMarkdownHandler
 from .csv_handler import CSVHandler
 from .excel_handler import ExcelHandler
 from .docx_handler import DocxHandler
+from .pptx_handler import PPTXHandler
 
 
 class HandlerRegistry:
@@ -31,6 +32,7 @@ class HandlerRegistry:
         csv_h = CSVHandler()
         xls_h = ExcelHandler()
         doc_h = DocxHandler()
+        ppt_h = PPTXHandler()
 
         # 1. Native PDF
         self.register(["pdf"], pdf_h)
@@ -52,6 +54,9 @@ class HandlerRegistry:
 
         # 7. Word Documents (converted to structured PDF pages)
         self.register(["docx", "doc"], doc_h)
+
+        # 8. PowerPoint Presentations (converted to structured markdown slides)
+        self.register(["pptx", "ppt"], ppt_h)
 
     def get_handler(self, filename_or_ext: str) -> BaseDataHandler:
         if "." in filename_or_ext:
