@@ -49,9 +49,9 @@ variable "table_mappings" {
 }
 
 variable "max_staleness" {
-  description = "Metadata cache max staleness."
+  description = "Metadata cache max staleness (format: '0-0 0 1:0:0' for 1 hour)."
   type        = string
-  default     = "INTERVAL 1 HOUR"
+  default     = "0-0 0 1:0:0"
 }
 
 variable "labels" {

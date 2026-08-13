@@ -17,14 +17,19 @@ terraform {
 }
 
 provider "google" {
-  project = var.project_id
-  region  = var.region
+  project               = var.project_id
+  region                = var.region
+  user_project_override = true
+  billing_project       = var.project_id
 }
 
 provider "google-beta" {
-  project = var.project_id
-  region  = var.region
+  project               = var.project_id
+  region                = var.region
+  user_project_override = true
+  billing_project       = var.project_id
 }
+
 
 # =============================================================================
 # 1. BIGQUERY OMNI AWS CONNECTION, DATASET & 7 EXTERNAL TABLES
@@ -251,16 +256,16 @@ module "bigquery_remote_function" {
   source                 = "./solutions/bigquery/functions/remote"
   project_id             = var.project_id
   region                 = var.region
-  dataset_id             = google_bigquery_dataset.unstructured_governance.dataset_id
+  dataset_id             = "unstructured_governance"
   routine_id             = "retrieve_llm_result"
   endpoint               = module.cloud_run_function.function_uri
   cloud_run_service_name = module.cloud_run_function.function_name
 
   depends_on = [
-    module.cloud_run_function,
-    google_bigquery_dataset.unstructured_governance
+    module.cloud_run_function
   ]
 }
+
 
 # =============================================================================
 # 6. LAKEHOUSE FEDERATED CATALOG STATUS MICROSERVICE RUNTIME SERVICE ACCOUNT
@@ -317,6 +322,25 @@ module "dataplex_data_product_assets" {
   data_product_assets = var.data_product_assets
   depends_on          = [module.dataplex_data_products]
 }
+
+# =============================================================================
+# 9. CLOUD IDENTITY GOOGLE USER GROUPS
+# Provisions Google Groups / Cloud Identity Groups for Dataplex Data Product Access Control
+# =============================================================================
+resource "google_cloud_identity_group" "claims_data_consumers" {
+  display_name = "Claims Data Consumers"
+  description  = "Data consumer group for Claims Unstructured Data Product"
+  parent       = "customers/${var.customer_id}"
+
+  group_key {
+    id = "claims-data-consumers@${var.organization_domain}"
+  }
+
+  labels = {
+    "cloudidentity.googleapis.com/groups.discussion_forum" = ""
+  }
+}
+
 
 
 

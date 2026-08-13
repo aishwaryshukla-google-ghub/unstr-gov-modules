@@ -46,17 +46,16 @@ resource "google_bigquery_table" "object_tables" {
   dataset_id          = local.target_dataset_id
   table_id            = "obj_tbl_${each.key}"
   deletion_protection = false
+  max_staleness       = var.max_staleness
 
   external_data_configuration {
     autodetect          = false
-    source_format       = "GOOGLE_CLOUD_STORAGE"
     object_metadata     = "SIMPLE"
     connection_id       = google_bigquery_connection.this.name
     metadata_cache_mode = var.metadata_cache_mode
-    max_staleness       = var.max_staleness
 
     source_uris = [
-      "gs://${var.gcs_bucket_name}/${each.value}*"
+      can(regex("\\*", each.value)) ? "gs://${var.gcs_bucket_name}/${each.value}" : "gs://${var.gcs_bucket_name}/${each.value}*"
     ]
   }
 

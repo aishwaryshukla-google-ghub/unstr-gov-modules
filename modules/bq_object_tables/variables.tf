@@ -43,9 +43,9 @@ variable "table_mappings" {
 }
 
 variable "max_staleness" {
-  description = "Staleness interval for BigQuery Object Table metadata cache (e.g., 'INTERVAL 1 HOUR')."
+  description = "Staleness interval for BigQuery Object Table metadata cache (format: '0-0 0 1:0:0' for 1 hour, '0-0 0 4:0:0' for 4 hours)."
   type        = string
-  default     = "INTERVAL 1 HOUR"
+  default     = "0-0 0 1:0:0"
 }
 
 variable "metadata_cache_mode" {

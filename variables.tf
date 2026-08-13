@@ -52,3 +52,35 @@ variable "data_product_assets" {
   default     = {}
   description = "Map of Data Product IDs to their mapped data assets and access group permissions"
 }
+
+variable "customer_id" {
+  description = "The Google Cloud Identity / Workspace Directory Customer ID (e.g. C03iuyfcm)."
+  type        = string
+  default     = "C03iuyfcm"
+}
+
+variable "organization_domain" {
+  description = "The organization identity domain for Google Groups."
+  type        = string
+  default     = "aishwaryshukla.altostrat.com"
+}
+
+variable "crf_subnetwork" {
+  description = "Subnetwork for Cloud Run Function Direct VPC Egress."
+  type        = string
+  default     = null
+}
+
+variable "crf_vpc_network" {
+  description = "VPC network for Cloud Run Function Direct VPC Egress."
+  type        = string
+  default     = null
+}
+
+variable "crf_network_tags" {
+  description = "Network tags for Cloud Run Function."
+  type        = list(string)
+  default     = []
+}
+
+
