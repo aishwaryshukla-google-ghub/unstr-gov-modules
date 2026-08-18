@@ -2,7 +2,7 @@
 # 1. The Data Store that will hold the redacted documents
 resource "google_discovery_engine_data_store" "redacted_data_store" {
   location                    = "us"
-  data_store_id               = "redacted-docs-store"
+  data_store_id               = "redacted-docs-store-v2"
   display_name                = "Redacted Unstructured Documents"
   industry_vertical           = "GENERIC"
   content_config              = "CONTENT_REQUIRED"
@@ -14,7 +14,7 @@ resource "google_discovery_engine_data_store" "redacted_data_store" {
 # 2. The Chat Agent built on top of the Data Store
 resource "google_discovery_engine_chat_engine" "redacted_agent" {
   location          = "us"
-  engine_id         = "redacted-docs-agent"
+  engine_id         = "redacted-docs-agent-v2"
   collection_id     = "default_collection"
   display_name      = "Redacted Docs Agent"
   industry_vertical = "GENERIC"
