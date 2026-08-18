@@ -6,7 +6,7 @@ data "archive_file" "function_zip" {
 }
 
 resource "google_storage_bucket" "function_bucket" {
-  name                        = "${var.project_id}-fn-source"
+  name                        = "${var.project_id}-fn-source-${var.region}"
   location                    = var.region
   project                     = var.project_id
   uniform_bucket_level_access = true
