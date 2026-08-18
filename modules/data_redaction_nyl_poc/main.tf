@@ -165,7 +165,7 @@ resource "google_cloudfunctions2_function" "nyl_mcp_server" {
     max_instance_count    = 1
     available_memory      = "512M"
     timeout_seconds       = 60
-    ingress_settings      = "ALLOW_ALL"
+    ingress_settings      = "ALLOW_INTERNAL_AND_GCLB"
     service_account_email = var.service_account_email
     environment_variables = {
       PROJECT_ID = var.project_id
