@@ -1,7 +1,7 @@
 # Vertex AI Agent Builder (Search and Conversation)
 # 1. The Data Store that will hold the redacted documents
 resource "google_discovery_engine_data_store" "redacted_data_store" {
-  location                    = "global"
+  location                    = "us"
   data_store_id               = "redacted-docs-store"
   display_name                = "Redacted Unstructured Documents"
   industry_vertical           = "GENERIC"
@@ -13,7 +13,7 @@ resource "google_discovery_engine_data_store" "redacted_data_store" {
 
 # 2. The Chat Agent built on top of the Data Store
 resource "google_discovery_engine_chat_engine" "redacted_agent" {
-  location          = "global"
+  location          = "us"
   engine_id         = "redacted-docs-agent"
   collection_id     = "default_collection"
   display_name      = "Redacted Docs Agent"
