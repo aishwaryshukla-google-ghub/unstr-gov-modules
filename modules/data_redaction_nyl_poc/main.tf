@@ -174,13 +174,13 @@ resource "google_cloudfunctions2_function" "nyl_mcp_server" {
   }
 }
 
-# Allow unauthenticated access for testing. In production, this should be restricted.
+# Require authentication for the MCP Server
 resource "google_cloud_run_service_iam_member" "mcp_invoker" {
   project  = var.project_id
   location = var.region
   service  = google_cloudfunctions2_function.nyl_mcp_server.name
   role     = "roles/run.invoker"
-  member   = "allUsers"
+  member   = "serviceAccount:${var.service_account_email}"
 }
 
 output "mcp_server_url" {
