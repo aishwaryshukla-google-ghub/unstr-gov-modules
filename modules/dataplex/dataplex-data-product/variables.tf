@@ -11,11 +11,13 @@ variable "data_products" {
     labels       = optional(map(string))
     owner_emails = optional(list(string))
     access_groups = optional(map(object({
-      display_name = optional(string)
-      description  = optional(string)
-      google_group = optional(string)
+      display_name    = optional(string)
+      description     = optional(string)
+      google_group    = optional(string)
+      service_account = optional(string)
     })))
   }))
   default     = {}
   description = "Map of data products to manage"
 }
+

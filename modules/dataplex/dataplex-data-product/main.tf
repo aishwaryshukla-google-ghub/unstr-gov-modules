@@ -32,11 +32,19 @@ resource "google_dataplex_data_product" "data_products" {
       display_name = coalesce(access_groups.value.display_name, access_groups.key)
       description  = access_groups.value.description
       dynamic "principal" {
-        for_each = access_groups.value.google_group != null && access_groups.value.google_group != "" ? [access_groups.value.google_group] : []
+        for_each = (
+          try(access_groups.value.google_group, null) != null && try(access_groups.value.google_group, "") != ""
+          ? [{ google_group = access_groups.value.google_group, service_account = null }]
+          : try(access_groups.value.service_account, null) != null && try(access_groups.value.service_account, "") != ""
+          ? [{ google_group = null, service_account = access_groups.value.service_account }]
+          : []
+        )
         content {
-          google_group = principal.value
+          google_group    = principal.value.google_group
+          service_account = principal.value.service_account
         }
       }
     }
   }
 }
+

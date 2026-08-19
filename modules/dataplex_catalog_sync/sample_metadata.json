@@ -1,0 +1,200 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#drives('b!1234')/items/$entity",
+  "@microsoft.graph.downloadUrl": "https://nyl.sharepoint.com/sites/compliance/_layouts/15/download.aspx?UniqueId=7372",
+  "createdDateTime": "2026-01-22T15:02:47Z",
+  "eTag": "\"{7372-GUID-001},16\"",
+  "id": "01ABCD7372XYZ",
+  "lastModifiedDateTime": "2026-07-30T04:25:55Z",
+  "name": "NYL_Compliance_Underwriting_Policy_2026.docx",
+  "webUrl": "https://nyl.sharepoint.com/sites/compliance/Shared%20Documents/NYL_Compliance_Underwriting_Policy_2026.docx",
+  "cTag": "\"{7372-CTAG-001},43\"",
+  "isAuthoritative": false,
+  "size": 39023,
+  "createdBy": {
+    "user": {
+      "email": "jane.doe@nyl.com",
+      "id": "usr-88392-jdoe",
+      "displayName": "Jane Doe"
+    }
+  },
+  "lastModifiedBy": {
+    "user": {
+      "email": "john.smith@nyl.com",
+      "id": "usr-99401-jsmith",
+      "displayName": "John Smith"
+    }
+  },
+  "parentReference": {
+    "driveType": "documentLibrary",
+    "driveId": "b!ABCD1234EFGH5678",
+    "id": "01PARENTFOLDER123",
+    "name": "Shared Documents",
+    "path": "/drives/b!ABCD1234EFGH5678/root:/Policies/Compliance",
+    "siteId": "nyl.sharepoint.com,site-guid-1234,web-guid-5678"
+  },
+  "file": {
+    "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "hashes": {
+      "quickXorHash": "W3eX+28fV0abc123Q=="
+    }
+  },
+  "fileSystemInfo": {
+    "createdDateTime": "2026-01-22T15:02:47Z",
+    "lastModifiedDateTime": "2026-07-30T04:25:55Z"
+  },
+  "shared": {
+    "scope": "users"
+  },
+  "listItem@odata.context": "https://graph.microsoft.com/v1.0/$metadata#sites('site-guid')/lists('list-guid')/items('7372')",
+  "listItem": {
+    "@odata.etag": "\"{some-etag-guid},11\"",
+    "createdDateTime": "2026-01-22T15:02:47Z",
+    "eTag": "\"{some-etag-guid},11\"",
+    "id": "7372",
+    "lastModifiedDateTime": "2026-07-30T04:25:55Z",
+    "webUrl": "https://nyl.sharepoint.com/sites/compliance/Lists/Documents/7372_.000",
+    "createdBy": {
+      "user": {
+        "email": "jane.doe@nyl.com",
+        "id": "usr-88392-jdoe",
+        "displayName": "Jane Doe"
+      }
+    },
+    "lastModifiedBy": {
+      "user": {
+        "email": "john.smith@nyl.com",
+        "id": "usr-99401-jsmith",
+        "displayName": "John Smith"
+      }
+    },
+    "parentReference": {
+      "id": "01PARENTFOLDER123",
+      "siteId": "nyl.sharepoint.com,site-guid-1234,web-guid-5678"
+    },
+    "contentType": {
+      "id": "0x010100A1B2C3D4",
+      "name": "Document"
+    },
+    "fields@odata.context": "https://graph.microsoft.com/v1.0/$metadata#sites('site-guid')/lists('list-guid')/items('7372')/fields/$entity",
+    "fields": {
+      "@odata.etag": "\"{some-etag-guid},11\"",
+      "FileLeafRef": "NYL_Compliance_Underwriting_Policy_2026.docx",
+      "Document_x0020_Type1LookupId": "7",
+      "LOB_LT": [
+        {
+          "LookupId": 17,
+          "LookupValue": "Retail Life & Annuities"
+        },
+        {
+          "LookupId": 2,
+          "LookupValue": "Corporate Compliance"
+        }
+      ],
+      "Document_x0020_Sub_x0020_Type1LookupId": "48",
+      "LOBFunction_LT": [
+        {
+          "LookupId": 101,
+          "LookupValue": "Underwriting Guidelines"
+        }
+      ],
+      "Series": ["Series-2026-A"],
+      "Function": {
+        "Label": "Actuarial Governance",
+        "TermGuid": "e2d83506-c875-47d9-952b-65c3bb95a123",
+        "WssId": 8
+      },
+      "SEC38a_x002d_1": false,
+      "DataClassification": "Confidential",
+      "MediaServiceImageTags": [],
+      "DocumentInServiceSage_x003f_": "YES",
+      "Modified": "2026-07-30T04:25:55Z",
+      "CertifiedBusinessApproved": "APPROVED",
+      "id": "7372",
+      "ContentType": "Document",
+      "Created": "2026-01-22T15:02:47Z",
+      "AuthorLookupId": "12",
+      "EditorLookupId": "18",
+      "_CheckinComment": "Updated underwriting criteria for 2026 product line",
+      "LinkFilenameNoMenu": "NYL_Compliance_Underwriting_Policy_2026.docx",
+      "LinkFilename": "NYL_Compliance_Underwriting_Policy_2026.docx",
+      "DocIcon": "docx",
+      "FileSizeDisplay": "38.1 KB",
+      "ItemChildCount": "0",
+      "FolderChildCount": "0",
+      "_ComplianceFlags": "1",
+      "_ComplianceTag": "NYL_FINANCIAL_RETENTION_7YR",
+      "_ComplianceTagWrittenTime": "2026-07-30T04:30:00Z",
+      "_ComplianceTagUserId": "compliance_admin@nyl.com",
+      "_CommentCount": "0",
+      "_LikeCount": "0",
+      "_DisplayName": "Internal",
+      "Edit": "0",
+      "_UIVersionString": "7.0",
+      "ParentVersionStringLookupId": "7",
+      "ParentLeafNameLookupId": "NYL_Compliance_Underwriting_Policy_2026.docx"
+    }
+  },
+  "customFields": {
+    "@odata.etag": "\"{some-etag-guid},11\"",
+    "FileLeafRef": "NYL_Compliance_Underwriting_Policy_2026.docx",
+    "Document_x0020_Type1LookupId": "7",
+    "LOB_LT": [
+      {
+        "LookupId": 17,
+        "LookupValue": "Retail Life & Annuities"
+      },
+      {
+        "LookupId": 2,
+        "LookupValue": "Corporate Compliance"
+      }
+    ],
+    "Document_x0020_Sub_x0020_Type1LookupId": "48",
+    "LOBFunction_LT": [
+      {
+        "LookupId": 101,
+        "LookupValue": "Underwriting Guidelines"
+      }
+    ],
+    "Series": ["Series-2026-A"],
+    "Function": {
+      "Label": "Actuarial Governance",
+      "TermGuid": "e2d83506-c875-47d9-952b-65c3bb95a123",
+      "WssId": 8
+    },
+    "SEC38a_x002d_1": false,
+    "DataClassification": "Confidential",
+    "MediaServiceImageTags": [],
+    "DocumentInServiceSage_x003f_": "YES",
+    "Modified": "2026-07-30T04:25:55Z",
+    "CertifiedBusinessApproved": "APPROVED",
+    "id": "7372",
+    "ContentType": "Document",
+    "Created": "2026-01-22T15:02:47Z",
+    "AuthorLookupId": "12",
+    "EditorLookupId": "18",
+    "_CheckinComment": "Updated underwriting criteria for 2026 product line",
+    "LinkFilenameNoMenu": "NYL_Compliance_Underwriting_Policy_2026.docx",
+    "LinkFilename": "NYL_Compliance_Underwriting_Policy_2026.docx",
+    "DocIcon": "docx",
+    "FileSizeDisplay": "38.1 KB",
+    "ItemChildCount": "0",
+    "FolderChildCount": "0",
+    "_ComplianceFlags": "1",
+    "_ComplianceTag": "NYL_FINANCIAL_RETENTION_7YR",
+    "_ComplianceTagWrittenTime": "2026-07-30T04:30:00Z",
+    "_ComplianceTagUserId": "compliance_admin@nyl.com",
+    "_CommentCount": "0",
+    "_LikeCount": "0",
+    "_DisplayName": "Internal",
+    "Edit": "0",
+    "_UIVersionString": "7.0",
+    "ParentVersionStringLookupId": "7",
+    "ParentLeafNameLookupId": "NYL_Compliance_Underwriting_Policy_2026.docx"
+  },
+  "kmh__short_code": [
+    "MMM",
+    "LIS"
+  ],
+  "governance_approved": true,
+  "governance_approval_created": "2026-08-10T23:03:23.386874"
+}
