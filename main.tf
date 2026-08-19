@@ -341,6 +341,23 @@ resource "google_cloud_identity_group" "claims_data_consumers" {
   }
 }
 
+# =============================================================================
+# 10. DATAPLEX UNIVERSAL CATALOG METADATA SYNC CLOUD RUN FUNCTION SOLUTION
+# Synchronizes SharePoint/Graph document metadata JSON from GCS into Dataplex Catalog.
+# =============================================================================
+module "dataplex_catalog_sync" {
+  source                          = "./solutions/dataplex_catalog_sync"
+  project_id                      = var.project_id
+  region                          = var.region
+  deploy_sa_email                 = var.deploy_sa_email
+  create_service_account          = true
+  service_account_id              = "nyl-dataplex-sync-sa"
+  enable_bigquery_remote_function = true
+  bq_dataset_id                   = "unstructured_governance"
+  bq_routine_id                   = "sync_gcs_metadata_to_dataplex"
+  bq_connection_id                = "dataplex_catalog_conn"
+}
+
 
 
 

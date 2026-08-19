@@ -68,3 +68,13 @@ output "dataplex_data_product_asset_ids" {
   value       = module.dataplex_data_product_assets.data_product_assets
 }
 
+output "dataplex_catalog_sync_function_uri" {
+  description = "The HTTP trigger URL endpoint for the Dataplex Catalog Sync Cloud Run Function."
+  value       = module.dataplex_catalog_sync.function_uri
+}
+
+output "dataplex_catalog_sync_remote_function_id" {
+  description = "The routine ID of the Dataplex Catalog Sync BigQuery Remote Function."
+  value       = module.dataplex_catalog_sync.bigquery_remote_function_id
+}
+
