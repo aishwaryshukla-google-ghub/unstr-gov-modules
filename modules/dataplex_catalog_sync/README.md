@@ -31,32 +31,49 @@ It dynamically creates/ensures:
 
 ```bash
 # Run unit test
-./virtual_envs/demo_dev_venv/bin/python3 experiments/dataplex_metadata_catalog_sync/test_local.py
+./virtual_envs/demo_dev_venv/bin/python3 experiments/unstr-gov-modules/modules/dataplex_catalog_sync/test_local.py
+
+# Run live Argolis test
+./virtual_envs/demo_dev_venv/bin/python3 experiments/unstr-gov-modules/modules/dataplex_catalog_sync/test_live_argolis.py
 ```
 
 ---
 
-## 2. Deployment to Cloud Run / Cloud Run Function
+## 2. Deployment to Cloud Run Function / Cloud Run Service
 
-Run the deployment script:
+Run the automated deployment script:
 ```bash
-cd experiments/dataplex_metadata_catalog_sync
+cd experiments/unstr-gov-modules/modules/dataplex_catalog_sync
 chmod +x deploy.sh
-./deploy.sh <PROJECT_ID> us-central1
+./deploy.sh databricks-playground-497321 us-central1
+```
+
+Or deploy directly via `gcloud functions deploy` (CRF Gen 2):
+```bash
+gcloud functions deploy dataplex-catalog-sync \
+  --gen2 \
+  --region=us-central1 \
+  --runtime=python311 \
+  --source=. \
+  --entry-point=bq_remote_function_handler \
+  --trigger-http \
+  --allow-unauthenticated \
+  --service-account=dataplex-catalog-sync-sa@databricks-playground-497321.iam.gserviceaccount.com
 ```
 
 ---
 
 ## 3. Invocation via BigQuery Remote Function
 
-Once deployed, register the function in BigQuery:
+Once deployed, register the function in BigQuery ([remote_function.sql](file:///Users/aishwaryshukla/Desktop/projects/google_cloud/80_percent/NYL/experiments/unstr-gov-modules/modules/dataplex_catalog_sync/remote_function.sql)):
 
 ```sql
 -- 1. Create Remote Function
 CREATE OR REPLACE FUNCTION `unstructured_governance.sync_gcs_metadata_to_dataplex`(
   gcs_metadata_uri STRING,
   project_id STRING,
-  location STRING
+  location STRING,
+  entry_group_id STRING -- Optional: pass NULL to auto-derive from metadata/bucket
 )
 RETURNS JSON
 REMOTE WITH CONNECTION `us-central1.dataplex_catalog_conn`
@@ -67,11 +84,12 @@ OPTIONS (
 
 -- 2. Invoke over an Object Table or URI list
 SELECT 
-  uri,
+  uri AS gcs_file_uri,
   `unstructured_governance.sync_gcs_metadata_to_dataplex`(
     CONCAT(uri, '.json'),
     'databricks-playground-497321',
-    'us-central1'
+    'us-central1',
+    NULL
   ) AS sync_response
 FROM `unstructured_governance.obj_tbl_documents`;
 ```

@@ -3,7 +3,8 @@ import json
 import argparse
 import logging
 from typing import Dict, Any, Tuple, Optional
-from flask import Flask, request, jsonify
+from flask import Flask, request as flask_request, jsonify
+import functions_framework
 from google.cloud import storage
 import google.auth
 
@@ -181,20 +182,23 @@ def sync_metadata_to_dataplex(
 # HTTP Endpoint (Cloud Run Function / BigQuery Remote Function)
 # =============================================================================
 
-@app.route("/", methods=["POST"])
-def bq_remote_function_handler():
+@functions_framework.http
+def bq_remote_function_handler(request=None):
     """
-    Dual-mode HTTP handler:
+    Dual-mode HTTP handler for Cloud Run Function & BigQuery Remote Function:
     1. BigQuery Remote Function mode:
-       Input:  {"calls": [ ["gs://bucket/path/file.json", "project-id", "us-central1"] ]}
+       Input:  {"calls": [ ["gs://bucket/path/file.json", "project-id", "us-central1", "entry-group"] ]}
        Output: {"replies": [ { "status": "SUCCESS", ... } ]}
 
     2. Direct REST JSON mode:
-       Input:  {"gcs_uri": "gs://...", "project_id": "...", "location": "..."}
+       Input:  {"gcs_uri": "gs://...", "project_id": "...", "location": "...", "entry_group_id": "..."}
        Output: { "status": "SUCCESS", ... }
     """
+    # Resolve request object (Functions Framework passes request as param; Flask uses global)
+    req = request if request is not None and hasattr(request, "get_json") else flask_request
+
     try:
-        request_json = request.get_json(silent=True)
+        request_json = req.get_json(silent=True)
         if not request_json:
             return jsonify({"errorMessage": "Invalid or missing JSON payload"}), 400
 
@@ -256,6 +260,10 @@ def bq_remote_function_handler():
     except Exception as e:
         logger.exception("Internal server error")
         return jsonify({"errorMessage": f"Internal server error: {str(e)}"}), 500
+
+
+# Register Flask routes
+app.add_url_rule("/", view_func=bq_remote_function_handler, methods=["POST"])
 
 
 @app.route("/health", methods=["GET"])
