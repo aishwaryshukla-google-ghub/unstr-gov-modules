@@ -1,3 +1,4 @@
+import os
 import json
 import logging
 import time
@@ -115,7 +116,19 @@ class DataplexCatalogClient:
         # Check if exists
         get_res = requests.get(f"{DATAPLEX_API_BASE}/{resource_name}", headers=headers)
         if get_res.status_code == 200:
-            logger.info(f"Aspect Type already exists: {resource_name}")
+            existing_data = get_res.json()
+            existing_template = existing_data.get("metadataTemplate", {})
+            if existing_template != metadata_template:
+                logger.info(f"Aspect Type {resource_name} exists but schema changed, patching template...")
+                patch_url = f"{DATAPLEX_API_BASE}/{resource_name}?updateMask=metadataTemplate"
+                patch_res = requests.patch(patch_url, headers=headers, json={"metadataTemplate": metadata_template})
+                if patch_res.status_code in [200, 201]:
+                    op_data = patch_res.json()
+                    if "name" in op_data and "operations" in op_data["name"]:
+                        logger.info(f"Waiting for Aspect Type update LRO: {op_data['name']}...")
+                        self._wait_for_lro(op_data["name"])
+            else:
+                logger.info(f"Aspect Type already exists: {resource_name}")
             return resource_name
 
         payload = {
@@ -437,6 +450,8 @@ def get_source_provenance_template() -> Dict[str, Any]:
             },
             {"name": "source_created_time", "type": "datetime", "index": 12, "annotations": {"description": "Original creation timestamp"}},
             {"name": "source_modified_time", "type": "datetime", "index": 13, "annotations": {"description": "Last modified timestamp"}},
+            {"name": "gcs_document_uri", "type": "string", "index": 14, "annotations": {"description": "GCS URI of the actual document file"}},
+            {"name": "gcs_metadata_uri", "type": "string", "index": 15, "annotations": {"description": "GCS URI of the companion metadata JSON file"}},
         ],
     }
 
@@ -445,10 +460,46 @@ def get_source_provenance_template() -> Dict[str, Any]:
 # JSON Parsing and Aspect Extraction Logic
 # =============================================================================
 
+def resolve_document_and_metadata_uris(gcs_uri: str, file_name: str) -> Tuple[str, str, str]:
+    """
+    Resolves:
+    1. doc_gcs_uri (e.g. gs://bucket/path/file.docx)
+    2. meta_gcs_uri (e.g. gs://bucket/path/file.docx.json)
+    3. fqn (e.g. gcs:bucket:path/file.docx or custom:sharepoint:file.docx)
+    """
+    if gcs_uri.startswith("gs://"):
+        parts = gcs_uri[5:].split("/", 1)
+        bucket = parts[0]
+        raw_path = parts[1] if len(parts) > 1 else file_name
+
+        if raw_path.endswith(".metadata.json"):
+            doc_path = raw_path[:-14]
+            meta_path = raw_path
+        elif raw_path.endswith(".json") and any(raw_path.endswith(f".{ext}.json") for ext in ["docx", "pdf", "xlsx", "pptx", "txt", "csv", "doc", "rtf"]):
+            doc_path = raw_path[:-5]
+            meta_path = raw_path
+        elif raw_path.endswith(".json"):
+            # Sidecar named metadata.json or similar in the same directory as the file
+            folder = os.path.dirname(raw_path)
+            doc_path = f"{folder}/{file_name}" if folder else file_name
+            meta_path = raw_path
+        else:
+            doc_path = raw_path
+            meta_path = f"{raw_path}.json"
+
+        doc_gcs_uri = f"gs://{bucket}/{doc_path}"
+        meta_gcs_uri = f"gs://{bucket}/{meta_path}"
+        fqn = f"gcs:{bucket}:{doc_path}"
+        return doc_gcs_uri, meta_gcs_uri, fqn
+    else:
+        clean_name = file_name.replace("/", ".").replace(" ", "_")
+        return "", gcs_uri, f"custom:sharepoint:{clean_name}"
+
+
 def parse_metadata_json(raw_json: Dict[str, Any], gcs_uri: str) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
     """
     Parses the raw SharePoint/Graph metadata JSON into:
-    1. Entry core metadata (entry_id, display_name, description, fqn)
+    1. Entry core metadata (entry_id, display_name, description, fqn, gcs_document_uri, gcs_metadata_uri)
     2. Aspects dictionary keyed by Aspect Type short name.
     """
     custom_fields = raw_json.get("customFields") or {}
@@ -464,11 +515,15 @@ def parse_metadata_json(raw_json: Dict[str, Any], gcs_uri: str) -> Tuple[Dict[st
     # Entry ID must use hyphens/lowercase/numbers
     entry_id = f"sp-doc-{item_id}".lower().replace("_", "-")
 
+    doc_gcs_uri, meta_gcs_uri, fqn = resolve_document_and_metadata_uris(gcs_uri, file_name)
+
     entry_core = {
         "entry_id": entry_id,
         "display_name": file_name,
         "description": description,
-        "fully_qualified_name": fqn_from_gcs_uri(gcs_uri, file_name),
+        "fully_qualified_name": fqn,
+        "gcs_document_uri": doc_gcs_uri,
+        "gcs_metadata_uri": meta_gcs_uri,
     }
 
     # 1. Aspect 1: Governance & Compliance
@@ -576,6 +631,10 @@ def parse_metadata_json(raw_json: Dict[str, Any], gcs_uri: str) -> Tuple[Dict[st
         provenance_aspect_data["source_created_time"] = src_created
     if src_modified:
         provenance_aspect_data["source_modified_time"] = src_modified
+    if doc_gcs_uri:
+        provenance_aspect_data["gcs_document_uri"] = doc_gcs_uri
+    if meta_gcs_uri:
+        provenance_aspect_data["gcs_metadata_uri"] = meta_gcs_uri
 
     aspects = {
         "governance-compliance": gov_aspect_data,
@@ -588,11 +647,5 @@ def parse_metadata_json(raw_json: Dict[str, Any], gcs_uri: str) -> Tuple[Dict[st
 
 def fqn_from_gcs_uri(gcs_uri: str, default_name: str) -> str:
     """Generates a Dataplex Fully Qualified Name (FQN) from a GCS URI or custom source."""
-    if gcs_uri.startswith("gs://"):
-        parts = gcs_uri[5:].split("/", 1)
-        bucket = parts[0]
-        path = parts[1] if len(parts) > 1 else default_name
-        return f"gcs:{bucket}:{path}"
-    # Valid custom FQN format in Dataplex: custom:<system>:<id_or_name>
-    clean_name = default_name.replace("/", ".").replace(" ", "_")
-    return f"custom:sharepoint:{clean_name}"
+    _, _, fqn = resolve_document_and_metadata_uris(gcs_uri, default_name)
+    return fqn

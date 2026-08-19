@@ -20,10 +20,12 @@ class TestDataplexCatalogParser(unittest.TestCase):
     def test_parse_metadata(self):
         entry_core, aspects = parse_metadata_json(self.sample_json, self.gcs_uri)
 
-        # 1. Verify Entry Core
+        # 1. Verify Entry Core (FQN points to the actual document file)
         self.assertEqual(entry_core["entry_id"], "sp-doc-7372")
         self.assertEqual(entry_core["display_name"], "NYL_Compliance_Underwriting_Policy_2026.docx")
-        self.assertEqual(entry_core["fully_qualified_name"], "gcs:my-nyl-documents-bucket:policies/NYL_Compliance_Underwriting_Policy_2026.docx.json")
+        self.assertEqual(entry_core["fully_qualified_name"], "gcs:my-nyl-documents-bucket:policies/NYL_Compliance_Underwriting_Policy_2026.docx")
+        self.assertEqual(entry_core["gcs_document_uri"], "gs://my-nyl-documents-bucket/policies/NYL_Compliance_Underwriting_Policy_2026.docx")
+        self.assertEqual(entry_core["gcs_metadata_uri"], "gs://my-nyl-documents-bucket/policies/NYL_Compliance_Underwriting_Policy_2026.docx.json")
 
         # 2. Verify Governance & Compliance Aspect
         gov = aspects["governance-compliance"]
