@@ -15,11 +15,12 @@
 CREATE SCHEMA IF NOT EXISTS `unstructured_governance`
 OPTIONS (location = 'us-central1');
 
--- Step 3: Register the BigQuery Remote Function
+-- Step 3: Register the BigQuery Remote Function (with optional entry_group_id)
 CREATE OR REPLACE FUNCTION `unstructured_governance.sync_gcs_metadata_to_dataplex`(
   gcs_metadata_uri STRING,
   project_id STRING,
-  location STRING
+  location STRING,
+  entry_group_id STRING -- Optional: pass NULL to auto-derive from metadata/bucket
 )
 RETURNS JSON
 REMOTE WITH CONNECTION `us-central1.dataplex_catalog_conn`
@@ -33,11 +34,20 @@ OPTIONS (
 -- USAGE EXAMPLES
 -- =============================================================================
 
--- Example A: Sync a single metadata file
+-- Example A: Auto-derive Entry Group from metadata/bucket (pass NULL as 4th arg)
 SELECT `unstructured_governance.sync_gcs_metadata_to_dataplex`(
   'gs://my-nyl-documents-bucket/metadata/NYL_Compliance_Underwriting_Policy_2026.docx.json',
   'databricks-playground-497321',
-  'us-central1'
+  'us-central1',
+  NULL
+) AS sync_result;
+
+-- Example B: Explicitly target a specific Entry Group (e.g. 'underwriting-policies')
+SELECT `unstructured_governance.sync_gcs_metadata_to_dataplex`(
+  'gs://my-nyl-documents-bucket/metadata/NYL_Compliance_Underwriting_Policy_2026.docx.json',
+  'databricks-playground-497321',
+  'us-central1',
+  'underwriting-policies'
 ) AS sync_result;
 
 -- Example B: Batch sync all metadata files discovered in an Object Table

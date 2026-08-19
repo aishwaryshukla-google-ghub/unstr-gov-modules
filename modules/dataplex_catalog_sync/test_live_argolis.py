@@ -25,12 +25,11 @@ def main():
     print("=" * 80)
 
     try:
+        # Test auto-derivation of Entry Group (e.g. from parentReference.name: 'Shared Documents' -> 'shared-documents')
         res = sync_metadata_to_dataplex(
             gcs_uri=sample_file,
             project_id=project_id,
             location=location,
-            entry_group_id="sharepoint_documents",
-            entry_type_id="sharepoint_document",
         )
         print("\n✅ Sync Result:")
         print(json.dumps(res, indent=2))

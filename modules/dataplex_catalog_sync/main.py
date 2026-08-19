@@ -2,7 +2,7 @@ import os
 import json
 import argparse
 import logging
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 from flask import Flask, request, jsonify
 from google.cloud import storage
 import google.auth
@@ -43,18 +43,29 @@ def read_gcs_or_local_json(file_path: str) -> Dict[str, Any]:
             return json.load(f)
 
 
+def sanitize_id(raw_name: str, default: str = "unstructured-documents") -> str:
+    """Sanitizes an input string to comply with Dataplex ID constraints (lowercase, numbers, hyphens)."""
+    if not raw_name:
+        return default
+    sanitized = raw_name.lower().replace("_", "-").replace(" ", "-").replace(".", "-")
+    # Keep only alphanumeric and hyphens
+    sanitized = "".join(c for c in sanitized if c.isalnum() or c == "-").strip("-")
+    return sanitized or default
+
+
 def sync_metadata_to_dataplex(
     gcs_uri: str,
     project_id: str,
     location: str = DEFAULT_LOCATION,
-    entry_group_id: str = DEFAULT_ENTRY_GROUP_ID,
-    entry_type_id: str = DEFAULT_ENTRY_TYPE_ID,
+    entry_group_id: Optional[str] = None,
+    entry_type_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Main orchestration function:
     1. Downloads & parses the metadata JSON from GCS.
-    2. Ensures Dataplex Universal Catalog Entry Group, Aspect Types, and Entry Type exist.
-    3. Creates or updates the Catalog Entry with populated Aspects.
+    2. Dynamically derives Entry Group and Entry Type if not explicitly passed.
+    3. Ensures Dataplex Universal Catalog Entry Group, Aspect Types, and Entry Type exist.
+    4. Creates or updates the Catalog Entry with populated Aspects.
     """
     logger.info(f"Starting metadata sync for GCS URI: {gcs_uri} (Project: {project_id}, Location: {location})")
 
@@ -65,18 +76,39 @@ def sync_metadata_to_dataplex(
     entry_core, aspects_data = parse_metadata_json(raw_json, gcs_uri)
     entry_id = entry_core["entry_id"]
 
+    # 3. Dynamically resolve Entry Group ID
+    if not entry_group_id:
+        parent_ref_name = raw_json.get("parentReference", {}).get("name")
+        if parent_ref_name:
+            entry_group_id = sanitize_id(parent_ref_name)
+        elif gcs_uri.startswith("gs://"):
+            bucket_name = gcs_uri[5:].split("/")[0]
+            entry_group_id = sanitize_id(bucket_name)
+        else:
+            entry_group_id = sanitize_id(os.environ.get("DATAPLEX_ENTRY_GROUP_ID", DEFAULT_ENTRY_GROUP_ID))
+    else:
+        entry_group_id = sanitize_id(entry_group_id)
+
+    # 4. Dynamically resolve Entry Type ID
+    if not entry_type_id:
+        source_system = aspects_data.get("source-provenance", {}).get("source_system", "document")
+        entry_type_id = sanitize_id(f"{source_system}-document", DEFAULT_ENTRY_TYPE_ID)
+    else:
+        entry_type_id = sanitize_id(entry_type_id)
+
     client = DataplexCatalogClient()
 
-    # 3. Ensure Entry Group exists
+    # 5. Ensure Entry Group exists (with dynamic display name & description)
+    eg_display_name = entry_group_id.replace("-", " ").title()
     client.ensure_entry_group(
         project_id=project_id,
         location=location,
         entry_group_id=entry_group_id,
-        display_name="SharePoint Ingested Documents",
-        description="Catalog entry group for unstructured documents synchronized from SharePoint / M365",
+        display_name=eg_display_name,
+        description=f"Catalog entry group for unstructured assets in {eg_display_name}",
     )
 
-    # 4. Ensure Aspect Types exist
+    # 6. Ensure Aspect Types exist
     gov_aspect_name = client.ensure_aspect_type(
         project_id=project_id,
         location=location,
@@ -100,17 +132,18 @@ def sync_metadata_to_dataplex(
         location=location,
         aspect_type_id="source-provenance",
         display_name="Source Provenance",
-        description="Upstream SharePoint / Graph API system coordinates, authors, versions, and hashes",
+        description="Upstream source system coordinates, authors, versions, and hashes",
         metadata_template=get_source_provenance_template(),
     )
 
-    # 5. Ensure Entry Type exists
+    # 7. Ensure Entry Type exists
+    et_display_name = entry_type_id.replace("-", " ").title()
     entry_type_name = client.ensure_entry_type(
         project_id=project_id,
         location=location,
         entry_type_id=entry_type_id,
-        display_name="SharePoint Document",
-        description="Unstructured document synchronized from SharePoint / M365 with rich metadata",
+        display_name=et_display_name,
+        description=f"Unstructured asset type for {et_display_name}",
         allowed_aspect_type_names=[gov_aspect_name, tax_aspect_name, prov_aspect_name],
     )
 
@@ -182,12 +215,16 @@ def bq_remote_function_handler():
                 gcs_uri = call[0]
                 project_id = call[1] if len(call) > 1 and call[1] else fallback_project
                 location = call[2] if len(call) > 2 and call[2] else os.environ.get("LOCATION", DEFAULT_LOCATION)
+                entry_group_id = call[3] if len(call) > 3 and call[3] else None
+                entry_type_id = call[4] if len(call) > 4 and call[4] else None
 
                 try:
                     res = sync_metadata_to_dataplex(
                         gcs_uri=gcs_uri,
                         project_id=project_id,
                         location=location,
+                        entry_group_id=entry_group_id,
+                        entry_type_id=entry_type_id,
                     )
                     replies.append(res)
                 except Exception as e:
@@ -204,11 +241,15 @@ def bq_remote_function_handler():
         _, default_proj = google.auth.default()
         project_id = request_json.get("project_id") or os.environ.get("GCP_PROJECT") or default_proj
         location = request_json.get("location") or os.environ.get("LOCATION", DEFAULT_LOCATION)
+        entry_group_id = request_json.get("entry_group_id")
+        entry_type_id = request_json.get("entry_type_id")
 
         res = sync_metadata_to_dataplex(
             gcs_uri=gcs_uri,
             project_id=project_id,
             location=location,
+            entry_group_id=entry_group_id,
+            entry_type_id=entry_type_id,
         )
         return jsonify(res), 200
 
