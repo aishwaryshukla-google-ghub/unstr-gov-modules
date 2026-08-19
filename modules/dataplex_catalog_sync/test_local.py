@@ -21,12 +21,12 @@ class TestDataplexCatalogParser(unittest.TestCase):
         entry_core, aspects = parse_metadata_json(self.sample_json, self.gcs_uri)
 
         # 1. Verify Entry Core
-        self.assertEqual(entry_core["entry_id"], "sp_doc_7372")
+        self.assertEqual(entry_core["entry_id"], "sp-doc-7372")
         self.assertEqual(entry_core["display_name"], "NYL_Compliance_Underwriting_Policy_2026.docx")
         self.assertEqual(entry_core["fully_qualified_name"], "gcs:my-nyl-documents-bucket:policies/NYL_Compliance_Underwriting_Policy_2026.docx.json")
 
         # 2. Verify Governance & Compliance Aspect
-        gov = aspects["governance_compliance"]
+        gov = aspects["governance-compliance"]
         self.assertTrue(gov["governance_approved"])
         self.assertEqual(gov["governance_approval_timestamp"], "2026-08-10T23:03:23.386874Z")
         self.assertEqual(gov["data_classification"], "Confidential")
@@ -35,7 +35,7 @@ class TestDataplexCatalogParser(unittest.TestCase):
         self.assertEqual(gov["compliance_tags"]["tag_name"], "NYL_FINANCIAL_RETENTION_7YR")
 
         # 3. Verify Business Taxonomy Aspect
-        tax = aspects["business_taxonomy"]
+        tax = aspects["business-taxonomy"]
         self.assertEqual(tax["kmh_short_codes"], ["MMM", "LIS"])
         self.assertEqual(tax["document_type_lookup_id"], "7")
         self.assertEqual(tax["document_sub_type_lookup_id"], "48")
@@ -46,7 +46,7 @@ class TestDataplexCatalogParser(unittest.TestCase):
         self.assertEqual(tax["function_term"]["wss_id"], 8)
 
         # 4. Verify Source Provenance Aspect
-        prov = aspects["source_provenance"]
+        prov = aspects["source-provenance"]
         self.assertEqual(prov["source_system"], "SharePoint")
         self.assertEqual(prov["item_id"], "7372")
         self.assertEqual(prov["ui_version"], "7.0")

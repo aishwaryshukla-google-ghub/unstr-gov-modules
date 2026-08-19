@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-DEFAULT_ENTRY_GROUP_ID = "sharepoint_documents"
-DEFAULT_ENTRY_TYPE_ID = "sharepoint_document"
+DEFAULT_ENTRY_GROUP_ID = "sharepoint-documents"
+DEFAULT_ENTRY_TYPE_ID = "sharepoint-document"
 DEFAULT_LOCATION = "us-central1"
 
 
@@ -80,7 +80,7 @@ def sync_metadata_to_dataplex(
     gov_aspect_name = client.ensure_aspect_type(
         project_id=project_id,
         location=location,
-        aspect_type_id="governance_compliance",
+        aspect_type_id="governance-compliance",
         display_name="Governance & Compliance",
         description="Regulatory review, approval timestamps, and security classification metadata",
         metadata_template=get_governance_compliance_template(),
@@ -89,7 +89,7 @@ def sync_metadata_to_dataplex(
     tax_aspect_name = client.ensure_aspect_type(
         project_id=project_id,
         location=location,
-        aspect_type_id="business_taxonomy",
+        aspect_type_id="business-taxonomy",
         display_name="Business Taxonomy",
         description="Line of business, taxonomy lookups, KMH short codes, and Managed Metadata terms",
         metadata_template=get_business_taxonomy_template(),
@@ -98,7 +98,7 @@ def sync_metadata_to_dataplex(
     prov_aspect_name = client.ensure_aspect_type(
         project_id=project_id,
         location=location,
-        aspect_type_id="source_provenance",
+        aspect_type_id="source-provenance",
         display_name="Source Provenance",
         description="Upstream SharePoint / Graph API system coordinates, authors, versions, and hashes",
         metadata_template=get_source_provenance_template(),
@@ -116,9 +116,9 @@ def sync_metadata_to_dataplex(
 
     # 6. Map Aspect Types to their full resource names
     aspects_payload = {
-        gov_aspect_name: aspects_data["governance_compliance"],
-        tax_aspect_name: aspects_data["business_taxonomy"],
-        prov_aspect_name: aspects_data["source_provenance"],
+        gov_aspect_name: aspects_data["governance-compliance"],
+        tax_aspect_name: aspects_data["business-taxonomy"],
+        prov_aspect_name: aspects_data["source-provenance"],
     }
 
     # 7. Create or update Entry

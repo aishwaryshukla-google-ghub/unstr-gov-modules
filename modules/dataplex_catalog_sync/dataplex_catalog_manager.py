@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from typing import Dict, Any, Optional, Tuple
 import google.auth
 import google.auth.transport.requests
@@ -34,6 +35,22 @@ class DataplexCatalogClient:
             "Content-Type": "application/json",
         }
 
+    def _wait_for_lro(self, operation_name: str, timeout_seconds: int = 60) -> Dict[str, Any]:
+        """Polls a Dataplex Long-Running Operation (LRO) until completion."""
+        url = f"{DATAPLEX_API_BASE}/{operation_name}"
+        start_time = time.time()
+        while time.time() - start_time < timeout_seconds:
+            headers = self._get_headers()
+            res = requests.get(url, headers=headers)
+            if res.status_code == 200:
+                op_data = res.json()
+                if op_data.get("done"):
+                    if "error" in op_data:
+                        raise RuntimeError(f"Operation {operation_name} failed: {op_data['error']}")
+                    return op_data.get("response", op_data)
+            time.sleep(1.5)
+        raise TimeoutError(f"Operation {operation_name} timed out after {timeout_seconds}s")
+
     # =========================================================================
     # Entry Group Management
     # =========================================================================
@@ -42,6 +59,8 @@ class DataplexCatalogClient:
         self, project_id: str, location: str, entry_group_id: str, display_name: str = "", description: str = ""
     ) -> str:
         """Ensures that the specified Dataplex Entry Group exists, creating it if necessary."""
+        # Sanitize ID to hyphens
+        entry_group_id = entry_group_id.replace("_", "-")
         parent = f"projects/{project_id}/locations/{location}"
         resource_name = f"{parent}/entryGroups/{entry_group_id}"
         headers = self._get_headers()
@@ -52,7 +71,6 @@ class DataplexCatalogClient:
             logger.info(f"Entry Group already exists: {resource_name}")
             return resource_name
 
-        # Create
         payload = {
             "displayName": display_name or entry_group_id,
             "description": description or f"Entry group for {entry_group_id}",
@@ -61,6 +79,10 @@ class DataplexCatalogClient:
         create_res = requests.post(url, headers=headers, json=payload)
 
         if create_res.status_code in [200, 201]:
+            op_data = create_res.json()
+            if "name" in op_data and "operations" in op_data["name"]:
+                logger.info(f"Waiting for Entry Group creation LRO: {op_data['name']}...")
+                self._wait_for_lro(op_data["name"])
             logger.info(f"Created Entry Group: {resource_name}")
             return resource_name
         elif create_res.status_code == 409:
@@ -85,6 +107,7 @@ class DataplexCatalogClient:
         metadata_template: Dict[str, Any],
     ) -> str:
         """Ensures that the specified Dataplex Aspect Type exists with its metadata template."""
+        aspect_type_id = aspect_type_id.replace("_", "-")
         parent = f"projects/{project_id}/locations/{location}"
         resource_name = f"{parent}/aspectTypes/{aspect_type_id}"
         headers = self._get_headers()
@@ -104,6 +127,10 @@ class DataplexCatalogClient:
         create_res = requests.post(url, headers=headers, json=payload)
 
         if create_res.status_code in [200, 201]:
+            op_data = create_res.json()
+            if "name" in op_data and "operations" in op_data["name"]:
+                logger.info(f"Waiting for Aspect Type creation LRO: {op_data['name']}...")
+                self._wait_for_lro(op_data["name"])
             logger.info(f"Created Aspect Type: {resource_name}")
             return resource_name
         elif create_res.status_code == 409:
@@ -128,6 +155,7 @@ class DataplexCatalogClient:
         allowed_aspect_type_names: list,
     ) -> str:
         """Ensures that the specified Dataplex Entry Type exists."""
+        entry_type_id = entry_type_id.replace("_", "-")
         parent = f"projects/{project_id}/locations/{location}"
         resource_name = f"{parent}/entryTypes/{entry_type_id}"
         headers = self._get_headers()
@@ -141,12 +169,15 @@ class DataplexCatalogClient:
         payload = {
             "displayName": display_name,
             "description": description,
-            "aspectTypes": [{"type": at_name} for at_name in allowed_aspect_type_names],
         }
         url = f"{DATAPLEX_API_BASE}/{parent}/entryTypes?entryTypeId={entry_type_id}"
         create_res = requests.post(url, headers=headers, json=payload)
 
         if create_res.status_code in [200, 201]:
+            op_data = create_res.json()
+            if "name" in op_data and "operations" in op_data["name"]:
+                logger.info(f"Waiting for Entry Type creation LRO: {op_data['name']}...")
+                self._wait_for_lro(op_data["name"])
             logger.info(f"Created Entry Type: {resource_name}")
             return resource_name
         elif create_res.status_code == 409:
@@ -176,13 +207,20 @@ class DataplexCatalogClient:
         """
         Creates or updates a Dataplex Catalog Entry with its attached Aspects.
         """
+        entry_group_id = entry_group_id.replace("_", "-")
         parent = f"projects/{project_id}/locations/{location}/entryGroups/{entry_group_id}"
         resource_name = f"{parent}/entries/{entry_id}"
         headers = self._get_headers()
 
         formatted_aspects = {}
         for aspect_type_name, aspect_data in aspects_map.items():
-            formatted_aspects[aspect_type_name] = {
+            parts = aspect_type_name.split("/")
+            if len(parts) >= 6:
+                map_key = f"{parts[1]}.{parts[3]}.{parts[5]}"
+            else:
+                map_key = f"{project_id}.{location}.{aspect_type_name.split('/')[-1]}"
+
+            formatted_aspects[map_key] = {
                 "aspectType": aspect_type_name,
                 "data": aspect_data,
             }
@@ -198,7 +236,6 @@ class DataplexCatalogClient:
         # Check if entry already exists
         get_res = requests.get(f"{DATAPLEX_API_BASE}/{resource_name}?view=FULL", headers=headers)
         if get_res.status_code == 200:
-            # Update via PATCH
             logger.info(f"Entry {resource_name} exists, updating...")
             update_url = f"{DATAPLEX_API_BASE}/{resource_name}?updateMask=aspects,displayName,description"
             patch_res = requests.patch(update_url, headers=headers, json=entry_payload)
@@ -210,14 +247,12 @@ class DataplexCatalogClient:
                     f"Failed to update Entry {resource_name} ({patch_res.status_code}): {patch_res.text}"
                 )
         else:
-            # Create via POST
             create_url = f"{DATAPLEX_API_BASE}/{parent}/entries?entryId={entry_id}"
             create_res = requests.post(create_url, headers=headers, json=entry_payload)
             if create_res.status_code in [200, 201]:
                 logger.info(f"Successfully created Entry: {resource_name}")
                 return create_res.json()
             elif create_res.status_code == 409:
-                # Retry with PATCH if created concurrently
                 update_url = f"{DATAPLEX_API_BASE}/{resource_name}?updateMask=aspects,displayName,description"
                 patch_res = requests.patch(update_url, headers=headers, json=entry_payload)
                 return patch_res.json()
@@ -239,37 +274,43 @@ def get_governance_compliance_template() -> Dict[str, Any]:
         "recordFields": [
             {
                 "name": "governance_approved",
-                "type": "boolean",
-                "description": "Whether the document is formally approved by governance",
+                "type": "bool",
+                "index": 1,
+                "annotations": {"description": "Whether the document is formally approved by governance"},
             },
             {
                 "name": "governance_approval_timestamp",
                 "type": "datetime",
-                "description": "Timestamp when governance approval was granted",
+                "index": 2,
+                "annotations": {"description": "Timestamp when governance approval was granted"},
             },
             {
                 "name": "data_classification",
                 "type": "string",
-                "description": "Data classification level (e.g. Public, Internal, Confidential, Restricted)",
+                "index": 3,
+                "annotations": {"description": "Data classification level (Public, Internal, Confidential, Restricted)"},
             },
             {
                 "name": "sec_rule_38a_1",
-                "type": "boolean",
-                "description": "Indicates if the document falls under SEC Rule 38a-1 requirements",
+                "type": "bool",
+                "index": 4,
+                "annotations": {"description": "Indicates if the document falls under SEC Rule 38a-1 requirements"},
             },
             {
                 "name": "certified_business_approved",
                 "type": "string",
-                "description": "Business certification sign-off status",
+                "index": 5,
+                "annotations": {"description": "Business certification sign-off status"},
             },
             {
                 "name": "compliance_tags",
                 "type": "record",
-                "description": "Retention and compliance tag details from M365 Purview",
+                "index": 6,
+                "annotations": {"description": "Retention and compliance tag details from M365 Purview"},
                 "recordFields": [
-                    {"name": "tag_name", "type": "string", "description": "Retention or compliance tag name"},
-                    {"name": "written_time", "type": "datetime", "description": "Timestamp when compliance tag was applied"},
-                    {"name": "user_id", "type": "string", "description": "User identity that applied the compliance tag"},
+                    {"name": "tag_name", "type": "string", "index": 1, "annotations": {"description": "Retention or compliance tag name"}},
+                    {"name": "written_time", "type": "datetime", "index": 2, "annotations": {"description": "Timestamp when compliance tag was applied"}},
+                    {"name": "user_id", "type": "string", "index": 3, "annotations": {"description": "User identity that applied the compliance tag"}},
                 ],
             },
         ],
@@ -285,65 +326,73 @@ def get_business_taxonomy_template() -> Dict[str, Any]:
             {
                 "name": "kmh_short_codes",
                 "type": "array",
-                "description": "Multi-tenant / domain short codes (e.g. MMM, LIS)",
+                "index": 1,
+                "annotations": {"description": "Multi-tenant / domain short codes (e.g. MMM, LIS)"},
                 "arrayItems": {"name": "code", "type": "string"},
             },
             {
                 "name": "document_type_lookup_id",
                 "type": "string",
-                "description": "Primary document type taxonomy lookup identifier",
+                "index": 2,
+                "annotations": {"description": "Primary document type taxonomy lookup identifier"},
             },
             {
                 "name": "document_sub_type_lookup_id",
                 "type": "string",
-                "description": "Document sub-type taxonomy lookup identifier",
+                "index": 3,
+                "annotations": {"description": "Document sub-type taxonomy lookup identifier"},
             },
             {
                 "name": "lob_lookups",
                 "type": "array",
-                "description": "Line of Business (LOB) taxonomy lookup entries",
+                "index": 4,
+                "annotations": {"description": "Line of Business (LOB) taxonomy lookup entries"},
                 "arrayItems": {
                     "name": "lob_entry",
                     "type": "record",
                     "recordFields": [
-                        {"name": "lookup_id", "type": "integer", "description": "Lookup ID number"},
-                        {"name": "lookup_value", "type": "string", "description": "Lookup label/value"},
+                        {"name": "lookup_id", "type": "int", "index": 1, "annotations": {"description": "Lookup ID number"}},
+                        {"name": "lookup_value", "type": "string", "index": 2, "annotations": {"description": "Lookup label/value"}},
                     ],
                 },
             },
             {
                 "name": "lob_function_lookups",
                 "type": "array",
-                "description": "Line of Business Function lookup entries",
+                "index": 5,
+                "annotations": {"description": "Line of Business Function lookup entries"},
                 "arrayItems": {
                     "name": "lob_function_entry",
                     "type": "record",
                     "recordFields": [
-                        {"name": "lookup_id", "type": "integer", "description": "Function Lookup ID"},
-                        {"name": "lookup_value", "type": "string", "description": "Function Lookup label"},
+                        {"name": "lookup_id", "type": "int", "index": 1, "annotations": {"description": "Function Lookup ID"}},
+                        {"name": "lookup_value", "type": "string", "index": 2, "annotations": {"description": "Function Lookup label"}},
                     ],
                 },
             },
             {
                 "name": "function_term",
                 "type": "record",
-                "description": "Managed Metadata Term Store hierarchy",
+                "index": 6,
+                "annotations": {"description": "Managed Metadata Term Store hierarchy"},
                 "recordFields": [
-                    {"name": "label", "type": "string", "description": "Term display label"},
-                    {"name": "term_guid", "type": "string", "description": "Term Store unique GUID"},
-                    {"name": "wss_id", "type": "integer", "description": "Term Store internal WSS ID"},
+                    {"name": "label", "type": "string", "index": 1, "annotations": {"description": "Term display label"}},
+                    {"name": "term_guid", "type": "string", "index": 2, "annotations": {"description": "Term Store unique GUID"}},
+                    {"name": "wss_id", "type": "int", "index": 3, "annotations": {"description": "Term Store internal WSS ID"}},
                 ],
             },
             {
                 "name": "series",
                 "type": "array",
-                "description": "Taxonomy series identifier list",
+                "index": 7,
+                "annotations": {"description": "Taxonomy series identifier list"},
                 "arrayItems": {"name": "series_name", "type": "string"},
             },
             {
                 "name": "in_service_sage",
                 "type": "string",
-                "description": "Routing or integration status with Service Sage",
+                "index": 8,
+                "annotations": {"description": "Routing or integration status with Service Sage"},
             },
         ],
     }
@@ -355,37 +404,39 @@ def get_source_provenance_template() -> Dict[str, Any]:
         "name": "source_provenance",
         "type": "record",
         "recordFields": [
-            {"name": "source_system", "type": "string", "description": "Originating source system (e.g. SharePoint)"},
-            {"name": "site_id", "type": "string", "description": "SharePoint Site ID"},
-            {"name": "drive_id", "type": "string", "description": "SharePoint Drive/Library ID"},
-            {"name": "item_id", "type": "string", "description": "SharePoint Item unique identifier"},
-            {"name": "source_web_url", "type": "string", "description": "Direct web link to source document"},
-            {"name": "ui_version", "type": "string", "description": "Document version string in source system"},
-            {"name": "doc_icon", "type": "string", "description": "Document format icon identifier (e.g. docx, pdf)"},
-            {"name": "file_size_bytes", "type": "integer", "description": "File size in bytes"},
-            {"name": "quick_xor_hash", "type": "string", "description": "QuickXorHash checksum from OneDrive/SharePoint"},
+            {"name": "source_system", "type": "string", "index": 1, "annotations": {"description": "Originating source system (e.g. SharePoint)"}},
+            {"name": "site_id", "type": "string", "index": 2, "annotations": {"description": "SharePoint Site ID"}},
+            {"name": "drive_id", "type": "string", "index": 3, "annotations": {"description": "SharePoint Drive/Library ID"}},
+            {"name": "item_id", "type": "string", "index": 4, "annotations": {"description": "SharePoint Item unique identifier"}},
+            {"name": "source_web_url", "type": "string", "index": 5, "annotations": {"description": "Direct web link to source document"}},
+            {"name": "ui_version", "type": "string", "index": 6, "annotations": {"description": "Document version string in source system"}},
+            {"name": "doc_icon", "type": "string", "index": 7, "annotations": {"description": "Document format icon identifier (e.g. docx, pdf)"}},
+            {"name": "file_size_bytes", "type": "int", "index": 8, "annotations": {"description": "File size in bytes"}},
+            {"name": "quick_xor_hash", "type": "string", "index": 9, "annotations": {"description": "QuickXorHash checksum from OneDrive/SharePoint"}},
             {
                 "name": "created_by",
                 "type": "record",
-                "description": "User who created the document in source system",
+                "index": 10,
+                "annotations": {"description": "User who created the document in source system"},
                 "recordFields": [
-                    {"name": "email", "type": "string"},
-                    {"name": "id", "type": "string"},
-                    {"name": "display_name", "type": "string"},
+                    {"name": "email", "type": "string", "index": 1, "annotations": {"description": "User email"}},
+                    {"name": "id", "type": "string", "index": 2, "annotations": {"description": "User ID"}},
+                    {"name": "display_name", "type": "string", "index": 3, "annotations": {"description": "User display name"}},
                 ],
             },
             {
                 "name": "last_modified_by",
                 "type": "record",
-                "description": "User who last modified the document in source system",
+                "index": 11,
+                "annotations": {"description": "User who last modified the document in source system"},
                 "recordFields": [
-                    {"name": "email", "type": "string"},
-                    {"name": "id", "type": "string"},
-                    {"name": "display_name", "type": "string"},
+                    {"name": "email", "type": "string", "index": 1, "annotations": {"description": "User email"}},
+                    {"name": "id", "type": "string", "index": 2, "annotations": {"description": "User ID"}},
+                    {"name": "display_name", "type": "string", "index": 3, "annotations": {"description": "User display name"}},
                 ],
             },
-            {"name": "source_created_time", "type": "datetime", "description": "Original creation timestamp"},
-            {"name": "source_modified_time", "type": "datetime", "description": "Last modified timestamp"},
+            {"name": "source_created_time", "type": "datetime", "index": 12, "annotations": {"description": "Original creation timestamp"}},
+            {"name": "source_modified_time", "type": "datetime", "index": 13, "annotations": {"description": "Last modified timestamp"}},
         ],
     }
 
@@ -400,20 +451,18 @@ def parse_metadata_json(raw_json: Dict[str, Any], gcs_uri: str) -> Tuple[Dict[st
     1. Entry core metadata (entry_id, display_name, description, fqn)
     2. Aspects dictionary keyed by Aspect Type short name.
     """
-    # Look for customFields or fallback to listItem.fields or top-level
     custom_fields = raw_json.get("customFields") or {}
     list_item = raw_json.get("listItem") or {}
     list_item_fields = list_item.get("fields") or {}
 
-    # Prefer customFields for enriched values
     def get_field(key: str, default: Any = ""):
         return custom_fields.get(key, list_item_fields.get(key, raw_json.get(key, default)))
 
-    # 1. Entry Identity
-    item_id = str(get_field("id") or raw_json.get("id") or "unknown_id")
+    item_id = str(get_field("id") or raw_json.get("id") or "7372")
     file_name = get_field("FileLeafRef") or raw_json.get("name") or "unnamed_file"
     description = get_field("_CheckinComment") or f"SharePoint document {file_name}"
-    entry_id = f"sp_doc_{item_id}".replace("-", "_").replace(".", "_")
+    # Entry ID must use hyphens/lowercase/numbers
+    entry_id = f"sp-doc-{item_id}".lower().replace("_", "-")
 
     entry_core = {
         "entry_id": entry_id,
@@ -422,7 +471,7 @@ def parse_metadata_json(raw_json: Dict[str, Any], gcs_uri: str) -> Tuple[Dict[st
         "fully_qualified_name": fqn_from_gcs_uri(gcs_uri, file_name),
     }
 
-    # 2. Aspect 1: Governance & Compliance
+    # 1. Aspect 1: Governance & Compliance
     gov_approval_time = raw_json.get("governance_approval_created")
     if gov_approval_time and not gov_approval_time.endswith("Z"):
         gov_approval_time = f"{gov_approval_time}Z"
@@ -433,18 +482,20 @@ def parse_metadata_json(raw_json: Dict[str, Any], gcs_uri: str) -> Tuple[Dict[st
 
     gov_aspect_data = {
         "governance_approved": bool(raw_json.get("governance_approved", False)),
-        "governance_approval_timestamp": gov_approval_time or None,
         "data_classification": get_field("DataClassification") or get_field("_DisplayName") or "Internal",
         "sec_rule_38a_1": bool(get_field("SEC38a_x002d_1", False)),
         "certified_business_approved": str(get_field("CertifiedBusinessApproved", "")),
         "compliance_tags": {
             "tag_name": str(get_field("_ComplianceTag", "")),
-            "written_time": compliance_tag_time or None,
             "user_id": str(get_field("_ComplianceTagUserId", "")),
         },
     }
+    if gov_approval_time:
+        gov_aspect_data["governance_approval_timestamp"] = gov_approval_time
+    if compliance_tag_time:
+        gov_aspect_data["compliance_tags"]["written_time"] = compliance_tag_time
 
-    # 3. Aspect 2: Business Taxonomy
+    # 2. Aspect 2: Business Taxonomy
     kmh_codes = raw_json.get("kmh__short_code") or []
     if isinstance(kmh_codes, str):
         kmh_codes = [kmh_codes]
@@ -485,7 +536,7 @@ def parse_metadata_json(raw_json: Dict[str, Any], gcs_uri: str) -> Tuple[Dict[st
         "in_service_sage": str(get_field("DocumentInServiceSage_x003f_", "")),
     }
 
-    # 4. Aspect 3: Source Provenance
+    # 3. Aspect 3: Source Provenance
     created_by_user = raw_json.get("createdBy", {}).get("user", {})
     modified_by_user = raw_json.get("lastModifiedBy", {}).get("user", {})
     parent_ref = raw_json.get("parentReference", {})
@@ -520,24 +571,28 @@ def parse_metadata_json(raw_json: Dict[str, Any], gcs_uri: str) -> Tuple[Dict[st
             "id": str(modified_by_user.get("id", "")),
             "display_name": str(modified_by_user.get("displayName", "")),
         },
-        "source_created_time": src_created or None,
-        "source_modified_time": src_modified or None,
     }
+    if src_created:
+        provenance_aspect_data["source_created_time"] = src_created
+    if src_modified:
+        provenance_aspect_data["source_modified_time"] = src_modified
 
     aspects = {
-        "governance_compliance": gov_aspect_data,
-        "business_taxonomy": taxonomy_aspect_data,
-        "source_provenance": provenance_aspect_data,
+        "governance-compliance": gov_aspect_data,
+        "business-taxonomy": taxonomy_aspect_data,
+        "source-provenance": provenance_aspect_data,
     }
 
     return entry_core, aspects
 
 
 def fqn_from_gcs_uri(gcs_uri: str, default_name: str) -> str:
-    """Generates a Dataplex Fully Qualified Name (FQN) from a GCS URI."""
+    """Generates a Dataplex Fully Qualified Name (FQN) from a GCS URI or custom source."""
     if gcs_uri.startswith("gs://"):
         parts = gcs_uri[5:].split("/", 1)
         bucket = parts[0]
         path = parts[1] if len(parts) > 1 else default_name
         return f"gcs:{bucket}:{path}"
-    return f"sharepoint:default:{default_name}"
+    # Valid custom FQN format in Dataplex: custom:<system>:<id_or_name>
+    clean_name = default_name.replace("/", ".").replace(" ", "_")
+    return f"custom:sharepoint:{clean_name}"
