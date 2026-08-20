@@ -31,46 +31,40 @@ It dynamically creates/ensures:
 
 ```bash
 # Run unit test
-./virtual_envs/demo_dev_venv/bin/python3 experiments/unstr-gov-modules/modules/dataplex_catalog_sync/test_local.py
+./virtual_envs/demo_dev_venv/bin/python3 experiments/unstr-gov-modules/solutions/dataplex_catalog_sync/test_local.py
 
 # Run live Argolis test
-./virtual_envs/demo_dev_venv/bin/python3 experiments/unstr-gov-modules/modules/dataplex_catalog_sync/test_live_argolis.py
+./virtual_envs/demo_dev_venv/bin/python3 experiments/unstr-gov-modules/solutions/dataplex_catalog_sync/test_live_argolis.py
 ```
 
 ---
 
-## 2. Deployment to Cloud Run Function / Cloud Run Service
+## 2. Deployment
 
-Run the automated deployment script:
+### Option A: Via Terraform (Recommended)
+From the root of `experiments/unstr-gov-modules`:
 ```bash
-cd experiments/unstr-gov-modules/modules/dataplex_catalog_sync
-chmod +x deploy.sh
-./deploy.sh databricks-playground-497321 us-central1
+terraform apply -target=module.dataplex_catalog_sync
 ```
 
-Or deploy directly via `gcloud functions deploy` (CRF Gen 2):
+### Option B: Via Automated Deploy Script
 ```bash
-gcloud functions deploy dataplex-catalog-sync \
-  --gen2 \
-  --region=us-central1 \
-  --runtime=python311 \
-  --source=. \
-  --entry-point=bq_remote_function_handler \
-  --trigger-http \
-  --allow-unauthenticated \
-  --service-account=dataplex-catalog-sync-sa@databricks-playground-497321.iam.gserviceaccount.com
+cd experiments/unstr-gov-modules/solutions/dataplex_catalog_sync
+chmod +x deploy.sh
+./deploy.sh databricks-playground-497321 us-central1
 ```
 
 ---
 
 ## 3. Invocation via BigQuery Remote Function
 
-Once deployed, register the function in BigQuery ([remote_function.sql](file:///Users/aishwaryshukla/Desktop/projects/google_cloud/80_percent/NYL/experiments/unstr-gov-modules/modules/dataplex_catalog_sync/remote_function.sql)):
+Once deployed, register the function in BigQuery ([remote_function.sql](file:///Users/aishwaryshukla/Desktop/projects/google_cloud/80_percent/NYL/experiments/unstr-gov-modules/solutions/dataplex_catalog_sync/remote_function.sql)):
 
 ```sql
--- 1. Create Remote Function
+-- 1. Create Remote Function (accepts both metadata JSON and document URI)
 CREATE OR REPLACE FUNCTION `unstructured_governance.sync_gcs_metadata_to_dataplex`(
   gcs_metadata_uri STRING,
+  gcs_document_uri STRING, -- Optional: pass NULL to auto-derive from metadata JSON
   project_id STRING,
   location STRING,
   entry_group_id STRING -- Optional: pass NULL to auto-derive from metadata/bucket
@@ -82,11 +76,12 @@ OPTIONS (
   max_batching_rows = 10
 );
 
--- 2. Invoke over an Object Table or URI list
+-- 2. Invoke over an Object Table
 SELECT 
-  uri AS gcs_file_uri,
+  uri AS gcs_document_uri,
   `unstructured_governance.sync_gcs_metadata_to_dataplex`(
-    CONCAT(uri, '.json'),
+    CONCAT(uri, '.json'), -- metadata JSON URI
+    uri,                  -- physical document URI
     'databricks-playground-497321',
     'us-central1',
     NULL

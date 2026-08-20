@@ -15,9 +15,10 @@
 CREATE SCHEMA IF NOT EXISTS `unstructured_governance`
 OPTIONS (location = 'us-central1');
 
--- Step 3: Register the BigQuery Remote Function (with optional entry_group_id)
+-- Step 3: Register the BigQuery Remote Function (with gcs_metadata_uri & gcs_document_uri)
 CREATE OR REPLACE FUNCTION `unstructured_governance.sync_gcs_metadata_to_dataplex`(
   gcs_metadata_uri STRING,
+  gcs_document_uri STRING, -- Optional: pass NULL to auto-derive from metadata JSON
   project_id STRING,
   location STRING,
   entry_group_id STRING -- Optional: pass NULL to auto-derive from metadata/bucket
@@ -34,29 +35,33 @@ OPTIONS (
 -- USAGE EXAMPLES
 -- =============================================================================
 
--- Example A: Auto-derive Entry Group from metadata/bucket (pass NULL as 4th arg)
+-- Example A: Pass both metadata JSON URI and explicit document file URI
 SELECT `unstructured_governance.sync_gcs_metadata_to_dataplex`(
   'gs://my-nyl-documents-bucket/metadata/NYL_Compliance_Underwriting_Policy_2026.docx.json',
+  'gs://my-nyl-documents-bucket/policies/NYL_Compliance_Underwriting_Policy_2026.docx',
   'databricks-playground-497321',
   'us-central1',
   NULL
 ) AS sync_result;
 
--- Example B: Explicitly target a specific Entry Group (e.g. 'underwriting-policies')
+-- Example B: Auto-derive document URI from metadata JSON (pass NULL for document URI)
 SELECT `unstructured_governance.sync_gcs_metadata_to_dataplex`(
   'gs://my-nyl-documents-bucket/metadata/NYL_Compliance_Underwriting_Policy_2026.docx.json',
+  NULL,
   'databricks-playground-497321',
   'us-central1',
   'underwriting-policies'
 ) AS sync_result;
 
--- Example B: Batch sync all metadata files discovered in an Object Table
+-- Example C: Batch sync all documents from an Object Table
 SELECT 
   uri AS gcs_file_uri,
   `unstructured_governance.sync_gcs_metadata_to_dataplex`(
-    CONCAT(uri, '.json'),
+    CONCAT(uri, '.json'), -- metadata JSON URI
+    uri,                  -- actual document URI
     'databricks-playground-497321',
-    'us-central1'
+    'us-central1',
+    NULL
   ) AS catalog_sync_response
 FROM `unstructured_governance.obj_tbl_documents`
 WHERE ENDS_WITH(uri, '.docx') OR ENDS_WITH(uri, '.pdf');

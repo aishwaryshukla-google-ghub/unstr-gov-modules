@@ -129,36 +129,6 @@ variable "build_service_account" {
   default     = null
 }
 
-variable "vpc_connector" {
-  description = "Serverless VPC Access connector name/path."
-  type        = string
-  default     = null
-}
-
-variable "vpc_connector_egress_settings" {
-  description = "VPC connector egress settings. Allowed: ALL_TRAFFIC, PRIVATE_RANGES_ONLY."
-  type        = string
-  default     = null
-}
-
-variable "subnetwork" {
-  description = "The subnetwork name or URI for Direct VPC Egress."
-  type        = string
-  default     = null
-}
-
-variable "vpc_network" {
-  description = "Optional VPC network name or URI for Direct VPC Egress."
-  type        = string
-  default     = null
-}
-
-variable "network_tags" {
-  description = "Optional network tags applied to Direct VPC Egress traffic."
-  type        = list(string)
-  default     = []
-}
-
 variable "invokers" {
   description = "List of IAM principals allowed to invoke the function."
   type        = list(string)

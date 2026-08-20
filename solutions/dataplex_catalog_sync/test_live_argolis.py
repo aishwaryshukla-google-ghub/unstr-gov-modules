@@ -4,8 +4,8 @@ import os
 import json
 import logging
 
-# Add current dir to path
-sys.path.insert(0, os.path.dirname(__file__))
+# Add src dir to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from main import sync_metadata_to_dataplex
 
@@ -25,11 +25,12 @@ def main():
     print("=" * 80)
 
     try:
-        # Test auto-derivation of Entry Group (e.g. from parentReference.name: 'Shared Documents' -> 'shared-documents')
         res = sync_metadata_to_dataplex(
-            gcs_uri=sample_file,
+            gcs_metadata_uri=sample_file,
+            gcs_document_uri="gs://my-nyl-documents-bucket/policies/NYL_Compliance_Underwriting_Policy_2026.docx",
             project_id=project_id,
             location=location,
+            entry_group_id="shared-documents",
         )
         print("\n✅ Sync Result:")
         print(json.dumps(res, indent=2))

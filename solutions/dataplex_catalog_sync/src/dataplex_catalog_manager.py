@@ -460,15 +460,28 @@ def get_source_provenance_template() -> Dict[str, Any]:
 # JSON Parsing and Aspect Extraction Logic
 # =============================================================================
 
-def resolve_document_and_metadata_uris(gcs_uri: str, file_name: str) -> Tuple[str, str, str]:
+def resolve_document_and_metadata_uris(
+    gcs_metadata_uri: str,
+    file_name: str,
+    explicit_document_uri: Optional[str] = None,
+) -> Tuple[str, str, str]:
     """
     Resolves:
     1. doc_gcs_uri (e.g. gs://bucket/path/file.docx)
     2. meta_gcs_uri (e.g. gs://bucket/path/file.docx.json)
     3. fqn (e.g. gcs:bucket:path/file.docx or custom:sharepoint:file.docx)
     """
-    if gcs_uri.startswith("gs://"):
-        parts = gcs_uri[5:].split("/", 1)
+    if explicit_document_uri and explicit_document_uri.startswith("gs://"):
+        doc_gcs_uri = explicit_document_uri
+        parts = explicit_document_uri[5:].split("/", 1)
+        bucket = parts[0]
+        doc_path = parts[1] if len(parts) > 1 else file_name
+        fqn = f"gcs:{bucket}:{doc_path}"
+        meta_gcs_uri = gcs_metadata_uri if gcs_metadata_uri else f"{explicit_document_uri}.json"
+        return doc_gcs_uri, meta_gcs_uri, fqn
+
+    if gcs_metadata_uri and gcs_metadata_uri.startswith("gs://"):
+        parts = gcs_metadata_uri[5:].split("/", 1)
         bucket = parts[0]
         raw_path = parts[1] if len(parts) > 1 else file_name
 
@@ -493,10 +506,15 @@ def resolve_document_and_metadata_uris(gcs_uri: str, file_name: str) -> Tuple[st
         return doc_gcs_uri, meta_gcs_uri, fqn
     else:
         clean_name = file_name.replace("/", ".").replace(" ", "_")
-        return "", gcs_uri, f"custom:sharepoint:{clean_name}"
+        doc_gcs_uri = explicit_document_uri or ""
+        return doc_gcs_uri, gcs_metadata_uri or "", f"custom:sharepoint:{clean_name}"
 
 
-def parse_metadata_json(raw_json: Dict[str, Any], gcs_uri: str) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
+def parse_metadata_json(
+    raw_json: Dict[str, Any],
+    gcs_metadata_uri: str,
+    gcs_document_uri: Optional[str] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
     """
     Parses the raw SharePoint/Graph metadata JSON into:
     1. Entry core metadata (entry_id, display_name, description, fqn, gcs_document_uri, gcs_metadata_uri)
@@ -515,7 +533,11 @@ def parse_metadata_json(raw_json: Dict[str, Any], gcs_uri: str) -> Tuple[Dict[st
     # Entry ID must use hyphens/lowercase/numbers
     entry_id = f"sp-doc-{item_id}".lower().replace("_", "-")
 
-    doc_gcs_uri, meta_gcs_uri, fqn = resolve_document_and_metadata_uris(gcs_uri, file_name)
+    doc_gcs_uri, meta_gcs_uri, fqn = resolve_document_and_metadata_uris(
+        gcs_metadata_uri=gcs_metadata_uri,
+        file_name=file_name,
+        explicit_document_uri=gcs_document_uri,
+    )
 
     entry_core = {
         "entry_id": entry_id,

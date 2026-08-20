@@ -1,6 +1,9 @@
 import json
 import os
+import sys
 import unittest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from dataplex_catalog_manager import (
     parse_metadata_json,
@@ -58,6 +61,18 @@ class TestDataplexCatalogParser(unittest.TestCase):
 
         print("\n[SUCCESS] Local test passed! Parsed Entry and Aspects structure:")
         print(json.dumps({"entry": entry_core, "aspects": aspects}, indent=2))
+
+    def test_parse_metadata_with_explicit_doc_uri(self):
+        explicit_doc = "gs://custom-archive-bucket/2026/underwriting_v2.docx"
+        entry_core, aspects = parse_metadata_json(
+            self.sample_json,
+            self.gcs_uri,
+            gcs_document_uri=explicit_doc
+        )
+        self.assertEqual(entry_core["gcs_document_uri"], explicit_doc)
+        self.assertEqual(entry_core["fully_qualified_name"], "gcs:custom-archive-bucket:2026/underwriting_v2.docx")
+        self.assertEqual(aspects["source-provenance"]["gcs_document_uri"], explicit_doc)
+        self.assertEqual(aspects["source-provenance"]["gcs_metadata_uri"], self.gcs_uri)
 
 
 if __name__ == "__main__":

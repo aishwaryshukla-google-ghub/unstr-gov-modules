@@ -108,11 +108,6 @@ module "cloud_run_function" {
   all_traffic_on_latest_revision = var.all_traffic_on_latest_revision
   service_account_email          = local.resolved_sa_email
   build_service_account          = var.build_service_account != null ? var.build_service_account : local.resolved_sa_email
-  vpc_connector                  = var.vpc_connector
-  vpc_connector_egress_settings  = var.vpc_connector_egress_settings
-  subnetwork                     = var.subnetwork
-  vpc_network                    = var.vpc_network
-  network_tags                   = var.network_tags
   invokers                       = local.resolved_invokers
   invoker_role                   = var.invoker_role
   labels                         = var.labels
@@ -136,6 +131,7 @@ module "bigquery_remote_function" {
 
   arguments = [
     { name = "gcs_metadata_uri", data_type = jsonencode({ typeKind = "STRING" }) },
+    { name = "gcs_document_uri", data_type = jsonencode({ typeKind = "STRING" }) },
     { name = "project_id", data_type = jsonencode({ typeKind = "STRING" }) },
     { name = "location", data_type = jsonencode({ typeKind = "STRING" }) },
     { name = "entry_group_id", data_type = jsonencode({ typeKind = "STRING" }) }
