@@ -460,23 +460,54 @@ def get_source_provenance_template() -> Dict[str, Any]:
 # JSON Parsing and Aspect Extraction Logic
 # =============================================================================
 
+def detect_source_system(raw_json: Dict[str, Any], default: str = "unstructured") -> str:
+    """
+    Dynamically determines the source system name from the metadata JSON,
+    environment variables, or source indicators.
+    """
+    custom_fields = raw_json.get("customFields") or {}
+    list_item_fields = (raw_json.get("listItem") or {}).get("fields") or {}
+    explicit_system = (
+        raw_json.get("source_system")
+        or raw_json.get("sourceSystem")
+        or custom_fields.get("source_system")
+        or list_item_fields.get("source_system")
+    )
+    if explicit_system:
+        return str(explicit_system).strip().lower().replace(" ", "_").replace("-", "_")
+
+    # Heuristic detection for SharePoint / Microsoft Graph payloads
+    if raw_json.get("parentReference", {}).get("siteId") or "sharepoint" in str(raw_json.get("webUrl", "")).lower():
+        return "sharepoint"
+
+    # Environment variable override if configured
+    env_system = os.environ.get("DEFAULT_SOURCE_SYSTEM") or os.environ.get("SOURCE_SYSTEM")
+    if env_system:
+        return env_system.strip().lower().replace(" ", "_").replace("-", "_")
+
+    return default
+
+
 def resolve_document_and_metadata_uris(
     gcs_metadata_uri: str,
     file_name: str,
     explicit_document_uri: Optional[str] = None,
+    source_system: str = "unstructured",
 ) -> Tuple[str, str, str]:
     """
     Resolves:
     1. doc_gcs_uri (e.g. gs://bucket/path/file.docx)
     2. meta_gcs_uri (e.g. gs://bucket/path/file.docx.json)
-    3. fqn (e.g. gcs:bucket:path/file.docx or custom:sharepoint:file.docx)
+    3. fqn (e.g. custom:<source_system>:<bucket>:<doc_path>)
     """
+    clean_system = source_system.lower().replace(" ", "_").replace("-", "_")
+
     if explicit_document_uri and explicit_document_uri.startswith("gs://"):
         doc_gcs_uri = explicit_document_uri
         parts = explicit_document_uri[5:].split("/", 1)
         bucket = parts[0]
         doc_path = parts[1] if len(parts) > 1 else file_name
-        fqn = f"gcs:{bucket}:{doc_path}"
+        fqn = f"custom:{clean_system}:{bucket}:{doc_path}"
         meta_gcs_uri = gcs_metadata_uri if gcs_metadata_uri else f"{explicit_document_uri}.json"
         return doc_gcs_uri, meta_gcs_uri, fqn
 
@@ -502,24 +533,26 @@ def resolve_document_and_metadata_uris(
 
         doc_gcs_uri = f"gs://{bucket}/{doc_path}"
         meta_gcs_uri = f"gs://{bucket}/{meta_path}"
-        fqn = f"gcs:{bucket}:{doc_path}"
+        fqn = f"custom:{clean_system}:{bucket}:{doc_path}"
         return doc_gcs_uri, meta_gcs_uri, fqn
     else:
         clean_name = file_name.replace("/", ".").replace(" ", "_")
         doc_gcs_uri = explicit_document_uri or ""
-        return doc_gcs_uri, gcs_metadata_uri or "", f"custom:sharepoint:{clean_name}"
+        return doc_gcs_uri, gcs_metadata_uri or "", f"custom:{clean_system}:{clean_name}"
 
 
 def parse_metadata_json(
     raw_json: Dict[str, Any],
     gcs_metadata_uri: str,
     gcs_document_uri: Optional[str] = None,
+    source_system: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
     """
-    Parses the raw SharePoint/Graph metadata JSON into:
+    Parses document metadata JSON into:
     1. Entry core metadata (entry_id, display_name, description, fqn, gcs_document_uri, gcs_metadata_uri)
     2. Aspects dictionary keyed by Aspect Type short name.
     """
+    system_name = source_system or detect_source_system(raw_json)
     custom_fields = raw_json.get("customFields") or {}
     list_item = raw_json.get("listItem") or {}
     list_item_fields = list_item.get("fields") or {}
@@ -529,14 +562,15 @@ def parse_metadata_json(
 
     item_id = str(get_field("id") or raw_json.get("id") or "7372")
     file_name = get_field("FileLeafRef") or raw_json.get("name") or "unnamed_file"
-    description = get_field("_CheckinComment") or f"SharePoint document {file_name}"
-    # Entry ID must use hyphens/lowercase/numbers
-    entry_id = f"sp-doc-{item_id}".lower().replace("_", "-")
+    description = get_field("_CheckinComment") or f"{system_name.title()} document {file_name}"
+    prefix = "sp" if system_name == "sharepoint" else (system_name[:4] if system_name != "unstructured" else "doc")
+    entry_id = f"{prefix}-doc-{item_id}".lower().replace("_", "-")
 
     doc_gcs_uri, meta_gcs_uri, fqn = resolve_document_and_metadata_uris(
         gcs_metadata_uri=gcs_metadata_uri,
         file_name=file_name,
         explicit_document_uri=gcs_document_uri,
+        source_system=system_name,
     )
 
     entry_core = {
@@ -544,6 +578,7 @@ def parse_metadata_json(
         "display_name": file_name,
         "description": description,
         "fully_qualified_name": fqn,
+        "source_system": system_name,
         "gcs_document_uri": doc_gcs_uri,
         "gcs_metadata_uri": meta_gcs_uri,
     }
@@ -629,7 +664,7 @@ def parse_metadata_json(
         src_modified = f"{src_modified}Z"
 
     provenance_aspect_data = {
-        "source_system": "SharePoint",
+        "source_system": "SharePoint" if system_name == "sharepoint" else system_name.title(),
         "site_id": str(parent_ref.get("siteId", "")),
         "drive_id": str(parent_ref.get("driveId", "")),
         "item_id": item_id,

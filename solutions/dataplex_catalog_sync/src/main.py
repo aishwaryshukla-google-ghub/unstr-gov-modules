@@ -133,12 +133,14 @@ def sync_metadata_to_dataplex(
         )
 
     # 4. Ensure the Entry Type exists and allows these aspects
+    source_sys = entry_core.get("source_system", "sharepoint")
+    entry_type_id = f"{source_sys.lower().replace('_', '-')}-document"
     entry_type_name = client.ensure_entry_type(
         project_id=project_id,
         location=location,
-        entry_type_id="sharepoint-document",
-        display_name="SharePoint Document Asset",
-        description="Unstructured asset type for SharePoint documents",
+        entry_type_id=entry_type_id,
+        display_name=f"{source_sys.title()} Document Asset",
+        description=f"Unstructured asset type for {source_sys.title()} documents",
         allowed_aspect_type_names=list(aspect_names.values()),
     )
 

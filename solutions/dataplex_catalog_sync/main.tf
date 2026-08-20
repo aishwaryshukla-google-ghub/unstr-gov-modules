@@ -17,15 +17,21 @@ terraform {
 }
 
 # -----------------------------------------------------------------------------
-# 1. GCS BUCKET FOR FUNCTION SOURCE ARCHIVES
+# 1. GCS BUCKET FOR FUNCTION SOURCE ARCHIVES (OPTIONAL CREATION)
 # -----------------------------------------------------------------------------
 resource "google_storage_bucket" "source_bucket" {
+  count                       = var.create_source_bucket ? 1 : 0
   name                        = var.source_bucket_name != null ? var.source_bucket_name : "${var.project_id}-dataplex-sync-src-${var.region}"
   project                     = var.project_id
   location                    = var.region
   uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
   force_destroy               = true
   labels                      = var.labels
+}
+
+locals {
+  effective_source_bucket = var.create_source_bucket ? google_storage_bucket.source_bucket[0].name : var.source_bucket_name
 }
 
 # -----------------------------------------------------------------------------
@@ -42,7 +48,7 @@ data "archive_file" "function_zip" {
 # -----------------------------------------------------------------------------
 resource "google_storage_bucket_object" "function_source_object" {
   name   = "source-${data.archive_file.function_zip.output_md5}.zip"
-  bucket = google_storage_bucket.source_bucket.name
+  bucket = local.effective_source_bucket
   source = data.archive_file.function_zip.output_path
 }
 
@@ -74,6 +80,8 @@ locals {
   resolved_invokers = length(var.invokers) > 0 ? var.invokers : (
     local.resolved_sa_email != null ? ["serviceAccount:${local.resolved_sa_email}"] : []
   )
+
+  resolved_subnetwork = var.subnetwork != null ? var.subnetwork : var.vpc_subnetwork
 }
 
 # -----------------------------------------------------------------------------
@@ -89,7 +97,7 @@ module "cloud_run_function" {
   entry_point   = var.entry_point
 
   storage_source = {
-    bucket = google_storage_bucket.source_bucket.name
+    bucket = local.effective_source_bucket
     object = google_storage_bucket_object.function_source_object.name
   }
 
@@ -107,9 +115,16 @@ module "cloud_run_function" {
   ingress_settings               = var.ingress_settings
   all_traffic_on_latest_revision = var.all_traffic_on_latest_revision
   service_account_email          = local.resolved_sa_email
-  build_service_account          = var.build_service_account
+  build_service_account          = var.build_service_account != null ? var.build_service_account : var.deploy_sa_email
+  vpc_connector                  = var.vpc_connector
+  vpc_connector_egress_settings  = var.vpc_connector_egress_settings
+  event_trigger                  = var.event_trigger
   invokers                       = local.resolved_invokers
   invoker_role                   = var.invoker_role
   labels                         = var.labels
+  vpc_network                    = var.vpc_network
+  subnetwork                     = local.resolved_subnetwork
+  network_tags                   = var.network_tags
 }
+
 

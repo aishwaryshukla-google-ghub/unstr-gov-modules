@@ -26,7 +26,7 @@ class TestDataplexCatalogParser(unittest.TestCase):
         # 1. Verify Entry Core (FQN points to the actual document file)
         self.assertEqual(entry_core["entry_id"], "sp-doc-7372")
         self.assertEqual(entry_core["display_name"], "NYL_Compliance_Underwriting_Policy_2026.docx")
-        self.assertEqual(entry_core["fully_qualified_name"], "gcs:my-nyl-documents-bucket:policies/NYL_Compliance_Underwriting_Policy_2026.docx")
+        self.assertEqual(entry_core["fully_qualified_name"], "custom:sharepoint:my-nyl-documents-bucket:policies/NYL_Compliance_Underwriting_Policy_2026.docx")
         self.assertEqual(entry_core["gcs_document_uri"], "gs://my-nyl-documents-bucket/policies/NYL_Compliance_Underwriting_Policy_2026.docx")
         self.assertEqual(entry_core["gcs_metadata_uri"], "gs://my-nyl-documents-bucket/policies/NYL_Compliance_Underwriting_Policy_2026.docx.json")
 
@@ -70,7 +70,7 @@ class TestDataplexCatalogParser(unittest.TestCase):
             gcs_document_uri=explicit_doc
         )
         self.assertEqual(entry_core["gcs_document_uri"], explicit_doc)
-        self.assertEqual(entry_core["fully_qualified_name"], "gcs:custom-archive-bucket:2026/underwriting_v2.docx")
+        self.assertEqual(entry_core["fully_qualified_name"], "custom:sharepoint:custom-archive-bucket:2026/underwriting_v2.docx")
         self.assertEqual(aspects["source-provenance"]["gcs_document_uri"], explicit_doc)
         self.assertEqual(aspects["source-provenance"]["gcs_metadata_uri"], self.gcs_uri)
 

@@ -20,7 +20,7 @@ output "service_account_email" {
 
 output "source_bucket_name" {
   description = "The GCS bucket holding the function source ZIP package."
-  value       = google_storage_bucket.source_bucket.name
+  value       = local.effective_source_bucket
 }
 
 output "source_object_name" {

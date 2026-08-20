@@ -40,8 +40,14 @@ variable "entry_point" {
   default     = "bq_remote_function_handler"
 }
 
+variable "create_source_bucket" {
+  description = "Whether to create a new GCS bucket for function source archives. Set to false if using an existing bucket."
+  type        = bool
+  default     = true
+}
+
 variable "source_bucket_name" {
-  description = "Optional custom name for GCS source bucket."
+  description = "Name for GCS source bucket (created if create_source_bucket=true, or existing bucket name if false)."
   type        = string
   default     = null
 }
@@ -150,4 +156,60 @@ variable "labels" {
     managed_by          = "terraform"
     data_classification = "confidential"
   }
+}
+
+# -----------------------------------------------------------------------------
+# DIRECT VPC EGRESS & NETWORKING
+# -----------------------------------------------------------------------------
+variable "vpc_network" {
+  description = "VPC network name or URI for Direct VPC Egress."
+  type        = string
+  default     = null
+}
+
+variable "subnetwork" {
+  description = "Subnetwork name or URI for Direct VPC Egress."
+  type        = string
+  default     = null
+}
+
+variable "vpc_subnetwork" {
+  description = "Alias for subnetwork name or URI for Direct VPC Egress."
+  type        = string
+  default     = null
+}
+
+variable "network_tags" {
+  description = "Network tags applied to Direct VPC Egress traffic for firewall rules."
+  type        = list(string)
+  default     = []
+}
+
+variable "vpc_connector" {
+  description = "Serverless VPC Access connector name/path."
+  type        = string
+  default     = null
+}
+
+variable "vpc_connector_egress_settings" {
+  description = "VPC connector egress settings. Allowed: ALL_TRAFFIC, PRIVATE_RANGES_ONLY."
+  type        = string
+  default     = null
+}
+
+variable "event_trigger" {
+  description = "Eventarc trigger configuration object."
+  type = object({
+    trigger_region        = optional(string, null)
+    event_type            = string
+    pubsub_topic          = optional(string, null)
+    service_account_email = optional(string, null)
+    retry_policy          = optional(string, "RETRY_POLICY_DO_NOT_RETRY")
+    event_filters = optional(list(object({
+      attribute = string
+      value     = string
+      operator  = optional(string, null)
+    })), [])
+  })
+  default = null
 }
