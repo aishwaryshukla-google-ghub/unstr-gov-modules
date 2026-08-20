@@ -72,7 +72,8 @@ def sync_metadata_to_dataplex(
     2. Ensures the Entry Group exists in Dataplex.
     3. Ensures the three core Aspect Types exist (Governance, Taxonomy, Provenance).
     4. Ensures the Entry Type exists.
-    5. Publishes/updates the Entry with attached aspect data.
+    5. Ensures parent container entry exists for 'Entry list' hierarchy.
+    6. Publishes/updates the Entry with attached aspect data, rich Markdown Overview, and search Labels.
     """
     logger.info(
         f"Syncing document to Dataplex: Meta={gcs_metadata_uri}, Doc={gcs_document_uri} "
@@ -144,7 +145,23 @@ def sync_metadata_to_dataplex(
         allowed_aspect_type_names=list(aspect_names.values()),
     )
 
-    # 5. Build aspects payload and publish/update the entry
+    # 5. Ensure parent container entry exists (populates 'Entry list' tab)
+    container_id = entry_core.get("container_id")
+    parent_entry_name = None
+    if container_id:
+        env = entry_core.get("environment", "dev").title()
+        med = entry_core.get("medallion_layer", "bronze").title()
+        source = entry_core.get("source_system", "unstructured").title()
+        parent_entry_name = client.ensure_container_entry(
+            project_id=project_id,
+            location=location,
+            entry_group_id=entry_group_id,
+            container_id=container_id,
+            display_name=f"{env} {med} {source} Container",
+            description=f"Storage container grouping {env} {med} {source} document entries",
+        )
+
+    # 6. Build aspects payload and publish/update the entry
     aspects_payload = {
         aspect_name: aspects_data[aspect_id]
         for aspect_id, aspect_name in aspect_names.items()
@@ -160,6 +177,9 @@ def sync_metadata_to_dataplex(
         description=entry_core["description"],
         fully_qualified_name=entry_core["fully_qualified_name"],
         aspects_map=aspects_payload,
+        overview_content=entry_core.get("overview"),
+        labels=entry_core.get("labels"),
+        parent_entry=parent_entry_name,
     )
 
     return {
@@ -173,7 +193,10 @@ def sync_metadata_to_dataplex(
         "fully_qualified_name": entry_core["fully_qualified_name"],
         "gcs_document_uri": entry_core.get("gcs_document_uri"),
         "gcs_metadata_uri": gcs_metadata_uri,
+        "container_entry": parent_entry_name,
         "aspects_synced": list(aspects_data.keys()),
+        "overview_synced": bool(entry_core.get("overview")),
+        "labels_synced": list(entry_core.get("labels", {}).keys()),
     }
 
 

@@ -1,8 +1,9 @@
 import os
+import re
 import json
 import logging
 import time
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 import google.auth
 import google.auth.transport.requests
 import requests
@@ -11,6 +12,100 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 DATAPLEX_API_BASE = "https://dataplex.googleapis.com/v1"
+DATALINEAGE_API_BASE = "https://datalineage.googleapis.com/v1"
+
+
+def sanitize_dataplex_id(raw_id: str, max_len: int = 63) -> str:
+    """
+    Sanitizes a string to be a valid Dataplex resource ID.
+    Must contain only lowercase letters, numbers, hyphens, and underscores.
+    Length must be <= max_len (typically 63).
+    """
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "-", raw_id).lower()
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-_")
+    if not cleaned:
+        cleaned = "asset"
+    return cleaned[:max_len].rstrip("-_")
+
+
+def sanitize_label_value(val: Any, max_len: int = 63) -> str:
+    """
+    Sanitizes a string value for GCP labels (lowercase, numbers, _ and -, max 63 chars).
+    """
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(val)).lower()
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    return cleaned[:max_len].rstrip("_") or "none"
+
+
+def parse_storage_uri_components(uri: str) -> Dict[str, str]:
+    """
+    Parses a GCS URI of the standard pattern:
+    gs://<bucket_name>/<environment>/<medallion_layer>/<source_system>/<file_name>.<ext>
+    or arbitrary GCS path into structured components.
+    """
+    if not uri or not uri.startswith("gs://"):
+        return {
+            "bucket": "",
+            "environment": "dev",
+            "medallion_layer": "bronze",
+            "source_system": "unstructured",
+            "folder_path": "",
+            "file_name": "",
+            "file_stem": "",
+            "file_extension": "",
+        }
+
+    raw_path = uri[5:]
+    parts = raw_path.split("/")
+    bucket = parts[0]
+    sub_parts = parts[1:] if len(parts) > 1 else []
+
+    file_name = sub_parts[-1] if sub_parts else ""
+    folder_parts = sub_parts[:-1] if len(sub_parts) > 1 else []
+
+    env = "dev"
+    medallion = "bronze"
+    source = "unstructured"
+
+    env_candidates = {"dev", "staging", "stage", "test", "qa", "prod", "production", "uat"}
+    medallion_candidates = {"bronze", "silver", "gold", "raw", "curated", "refined", "landing", "clean"}
+
+    if len(folder_parts) >= 3:
+        if folder_parts[0].lower() in env_candidates:
+            env = folder_parts[0].lower()
+        if folder_parts[1].lower() in medallion_candidates:
+            medallion = folder_parts[1].lower()
+        source = folder_parts[2].lower()
+    elif len(folder_parts) == 2:
+        if folder_parts[0].lower() in medallion_candidates:
+            medallion = folder_parts[0].lower()
+            source = folder_parts[1].lower()
+        elif folder_parts[0].lower() in env_candidates:
+            env = folder_parts[0].lower()
+            medallion = folder_parts[1].lower()
+    elif len(folder_parts) == 1:
+        if folder_parts[0].lower() in medallion_candidates:
+            medallion = folder_parts[0].lower()
+        else:
+            source = folder_parts[0].lower()
+
+    file_stem = file_name
+    file_ext = ""
+    if "." in file_name:
+        dot_idx = file_name.rfind(".")
+        file_stem = file_name[:dot_idx]
+        file_ext = file_name[dot_idx + 1 :].lower()
+
+    return {
+        "bucket": bucket,
+        "environment": env,
+        "medallion_layer": medallion,
+        "source_system": source,
+        "folder_path": "/".join(folder_parts),
+        "file_name": file_name,
+        "file_stem": file_stem,
+        "file_extension": file_ext,
+    }
 
 
 class DataplexCatalogClient:
@@ -165,10 +260,10 @@ class DataplexCatalogClient:
         entry_type_id: str,
         display_name: str,
         description: str,
-        allowed_aspect_type_names: list,
+        allowed_aspect_type_names: Optional[List[str]] = None,
     ) -> str:
         """Ensures that the specified Dataplex Entry Type exists."""
-        entry_type_id = entry_type_id.replace("_", "-")
+        entry_type_id = sanitize_dataplex_id(entry_type_id)
         parent = f"projects/{project_id}/locations/{location}"
         resource_name = f"{parent}/entryTypes/{entry_type_id}"
         headers = self._get_headers()
@@ -202,7 +297,58 @@ class DataplexCatalogClient:
             )
 
     # =========================================================================
-    # Entry & Aspects Management
+    # Container / Parent Entry Management (Populates 'Entry list' tab)
+    # =========================================================================
+
+    def ensure_container_entry(
+        self,
+        project_id: str,
+        location: str,
+        entry_group_id: str,
+        container_id: str,
+        display_name: str,
+        description: str,
+    ) -> str:
+        """
+        Creates or ensures a parent container entry exists in the Entry Group.
+        When child documents set parentEntry pointing to this container,
+        the parent's 'Entry list' tab in Dataplex UI displays all child documents.
+        """
+        container_entry_type = self.ensure_entry_type(
+            project_id=project_id,
+            location=location,
+            entry_type_id="storage-container",
+            display_name="Storage Container",
+            description="Logical container or folder for grouping document entries",
+        )
+
+        parent = f"projects/{project_id}/locations/{location}/entryGroups/{entry_group_id}"
+        resource_name = f"{parent}/entries/{container_id}"
+        headers = self._get_headers()
+
+        get_res = requests.get(f"{DATAPLEX_API_BASE}/{resource_name}?view=BASIC", headers=headers)
+        if get_res.status_code == 200:
+            return resource_name
+
+        payload = {
+            "entryType": container_entry_type,
+            "displayName": display_name,
+            "description": description,
+            "fullyQualifiedName": f"custom:container:{entry_group_id}:{container_id}",
+        }
+        create_url = f"{DATAPLEX_API_BASE}/{parent}/entries?entryId={container_id}"
+        create_res = requests.post(create_url, headers=headers, json=payload)
+        if create_res.status_code in [200, 201]:
+            logger.info(f"Created container entry: {resource_name}")
+            return resource_name
+        elif create_res.status_code == 409:
+            return resource_name
+        else:
+            logger.warning(f"Could not create container entry {resource_name}: {create_res.text}")
+            return resource_name
+
+    # =========================================================================
+    # Entry & Aspects Management (Details, Overview, Labels & Aspects)
     # =========================================================================
 
     def create_or_update_entry(
@@ -216,11 +362,16 @@ class DataplexCatalogClient:
         display_name: str,
         description: str,
         aspects_map: Dict[str, Dict[str, Any]],
+        overview_content: Optional[str] = None,
+        labels: Optional[Dict[str, str]] = None,
+        parent_entry: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Creates or updates a Dataplex Catalog Entry with its attached Aspects.
+        Creates or updates a Dataplex Catalog Entry with its attached Aspects,
+        rich Markdown Overview, searchable Labels, and optional parent container link.
         """
-        entry_group_id = entry_group_id.replace("_", "-")
+        entry_group_id = sanitize_dataplex_id(entry_group_id)
+        entry_id = sanitize_dataplex_id(entry_id)
         parent = f"projects/{project_id}/locations/{location}/entryGroups/{entry_group_id}"
         resource_name = f"{parent}/entries/{entry_id}"
         headers = self._get_headers()
@@ -238,7 +389,7 @@ class DataplexCatalogClient:
                 "data": aspect_data,
             }
 
-        entry_payload = {
+        entry_payload: Dict[str, Any] = {
             "entryType": entry_type_name,
             "fullyQualifiedName": fully_qualified_name,
             "displayName": display_name,
@@ -246,11 +397,34 @@ class DataplexCatalogClient:
             "aspects": formatted_aspects,
         }
 
+        if overview_content:
+            entry_payload["overview"] = {"content": overview_content}
+
+        if labels:
+            entry_payload["labels"] = {
+                sanitize_dataplex_id(k, 63): sanitize_label_value(v, 63)
+                for k, v in labels.items()
+                if v is not None and str(v).strip() != ""
+            }
+
+        if parent_entry:
+            entry_payload["parentEntry"] = parent_entry
+
+        update_mask_fields = ["aspects", "displayName", "description"]
+        if overview_content:
+            update_mask_fields.append("overview")
+        if labels:
+            update_mask_fields.append("labels")
+        if parent_entry:
+            update_mask_fields.append("parentEntry")
+
+        update_mask = ",".join(update_mask_fields)
+
         # Check if entry already exists
         get_res = requests.get(f"{DATAPLEX_API_BASE}/{resource_name}?view=FULL", headers=headers)
         if get_res.status_code == 200:
-            logger.info(f"Entry {resource_name} exists, updating...")
-            update_url = f"{DATAPLEX_API_BASE}/{resource_name}?updateMask=aspects,displayName,description"
+            logger.info(f"Entry {resource_name} exists, updating with mask: {update_mask}...")
+            update_url = f"{DATAPLEX_API_BASE}/{resource_name}?updateMask={update_mask}"
             patch_res = requests.patch(update_url, headers=headers, json=entry_payload)
             if patch_res.status_code in [200, 201]:
                 logger.info(f"Successfully updated Entry: {resource_name}")
@@ -266,13 +440,82 @@ class DataplexCatalogClient:
                 logger.info(f"Successfully created Entry: {resource_name}")
                 return create_res.json()
             elif create_res.status_code == 409:
-                update_url = f"{DATAPLEX_API_BASE}/{resource_name}?updateMask=aspects,displayName,description"
+                update_url = f"{DATAPLEX_API_BASE}/{resource_name}?updateMask={update_mask}"
                 patch_res = requests.patch(update_url, headers=headers, json=entry_payload)
                 return patch_res.json()
             else:
                 raise RuntimeError(
                     f"Failed to create Entry {resource_name} ({create_res.status_code}): {create_res.text}"
                 )
+
+    # =========================================================================
+    # Data Lineage API Integration (Populates 'Lineage' tab)
+    # =========================================================================
+
+    def publish_data_lineage_link(
+        self,
+        project_id: str,
+        location: str,
+        source_uri: str,
+        target_uri: str,
+        process_display_name: str = "Unstructured Ingestion & Catalog Sync",
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Publishes a data lineage process and run to Google Cloud Data Lineage API
+        (datalineage.googleapis.com) connecting source_uri to target_uri.
+        This enables the 'Lineage' tab graph visualization in Dataplex.
+        """
+        parent = f"projects/{project_id}/locations/{location}"
+        headers = self._get_headers()
+
+        process_id = sanitize_dataplex_id(process_display_name, 40)
+        process_name = f"{parent}/processes/{process_id}"
+
+        # 1. Ensure Lineage Process
+        proc_payload = {"displayName": process_display_name}
+        proc_res = requests.post(
+            f"{DATALINEAGE_API_BASE}/{parent}/processes?processId={process_id}",
+            headers=headers,
+            json=proc_payload,
+        )
+        if proc_res.status_code not in [200, 201, 409]:
+            logger.warning(f"Could not register lineage process {process_name}: {proc_res.text}")
+            return None
+
+        # 2. Create Lineage Run
+        run_res = requests.post(
+            f"{DATALINEAGE_API_BASE}/{process_name}/runs",
+            headers=headers,
+            json={"displayName": f"Run at {time.strftime('%Y-%m-%dT%H:%M:%SZ')}", "state": "COMPLETED"},
+        )
+        if run_res.status_code not in [200, 201]:
+            logger.warning(f"Could not create lineage run: {run_res.text}")
+            return None
+        run_data = run_res.json()
+        run_name = run_data.get("name")
+
+        # 3. Create Lineage Event linking source to target
+        event_payload = {
+            "startTime": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "endTime": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "links": [
+                {
+                    "source": {"fullyQualifiedName": source_uri},
+                    "target": {"fullyQualifiedName": target_uri},
+                }
+            ],
+        }
+        event_res = requests.post(
+            f"{DATALINEAGE_API_BASE}/{run_name}/lineageEvents",
+            headers=headers,
+            json=event_payload,
+        )
+        if event_res.status_code in [200, 201]:
+            logger.info(f"Published Lineage Event from {source_uri} -> {target_uri}")
+            return event_res.json()
+        else:
+            logger.warning(f"Could not publish lineage event: {event_res.text}")
+            return None
 
 
 # =============================================================================
@@ -452,8 +695,131 @@ def get_source_provenance_template() -> Dict[str, Any]:
             {"name": "source_modified_time", "type": "datetime", "index": 13, "annotations": {"description": "Last modified timestamp"}},
             {"name": "gcs_document_uri", "type": "string", "index": 14, "annotations": {"description": "GCS URI of the actual document file"}},
             {"name": "gcs_metadata_uri", "type": "string", "index": 15, "annotations": {"description": "GCS URI of the companion metadata JSON file"}},
+            {"name": "environment", "type": "string", "index": 16, "annotations": {"description": "Deployment environment (e.g. dev, prod)"}},
+            {"name": "medallion_layer", "type": "string", "index": 17, "annotations": {"description": "Medallion architecture layer (bronze, silver, gold)"}},
+            {"name": "bucket_name", "type": "string", "index": 18, "annotations": {"description": "GCS Bucket name hosting the document"}},
+            {"name": "storage_path", "type": "string", "index": 19, "annotations": {"description": "Relative storage path inside bucket"}},
         ],
     }
+
+
+# =============================================================================
+# Overview & Labels Generation Logic
+# =============================================================================
+
+def generate_overview_markdown(entry_core: Dict[str, Any], aspects: Dict[str, Dict[str, Any]]) -> str:
+    """
+    Generates a rich, structured Markdown document for the Dataplex Entry Overview.
+    This provides human-readable documentation and powers Dataplex full-text search indexing.
+    """
+    display_name = entry_core.get("display_name", "Document Asset")
+    doc_uri = entry_core.get("gcs_document_uri", "N/A")
+    meta_uri = entry_core.get("gcs_metadata_uri", "N/A")
+    medallion = entry_core.get("medallion_layer", "bronze").upper()
+    env = entry_core.get("environment", "dev").upper()
+    system_name = entry_core.get("source_system", "unstructured").title()
+    desc = entry_core.get("description", "")
+
+    tax = aspects.get("business-taxonomy", {})
+    gov = aspects.get("governance-compliance", {})
+    prov = aspects.get("source-provenance", {})
+
+    lob_list = [
+        f"`{item.get('lookup_id')}` ({item.get('lookup_value')})"
+        for item in tax.get("lob_lookups", [])
+    ]
+    lob_str = ", ".join(lob_list) if lob_list else "None specified"
+
+    func = tax.get("function_term", {})
+    func_str = func.get("label", "N/A")
+    if func.get("term_guid"):
+        func_str += f" *(GUID: `{func.get('term_guid')}`, WSS ID: `{func.get('wss_id')}`)*"
+
+    created_by = prov.get("created_by", {})
+    created_str = f"{created_by.get('display_name', '')} &lt;{created_by.get('email', '')}&gt;".strip() or "N/A"
+    modified_by = prov.get("last_modified_by", {})
+    modified_str = f"{modified_by.get('display_name', '')} &lt;{modified_by.get('email', '')}&gt;".strip() or "N/A"
+
+    comp_tag = gov.get("compliance_tags", {})
+    tag_name = comp_tag.get("tag_name", "None")
+
+    lines = [
+        f"# {display_name}",
+        f"",
+        f"> **Document Asset** | Medallion Layer: `{medallion}` | Environment: `{env}` | Source System: `{system_name}`",
+        f"",
+        f"**Description:** {desc}",
+        f"",
+        f"---",
+        f"",
+        f"### 📂 Storage & Infrastructure",
+        f"* **GCS Document URI:** `{doc_uri}`",
+        f"* **GCS Metadata URI:** `{meta_uri}`",
+        f"* **Storage Bucket:** `{prov.get('bucket_name', 'N/A')}`",
+        f"* **Storage Path:** `{prov.get('storage_path', 'N/A')}`",
+        f"* **File Size:** {prov.get('file_size_bytes', 0):,} bytes (UI Version: `{prov.get('ui_version', '1.0')}`)",
+        f"",
+        f"---",
+        f"",
+        f"### 🏷️ Business Taxonomy & Lookup Codes",
+        f"* **Document Type Lookup ID:** `{tax.get('document_type_lookup_id', 'N/A')}`",
+        f"* **Document Sub-Type Lookup ID:** `{tax.get('document_sub_type_lookup_id', 'N/A')}`",
+        f"* **Lines of Business (LOB):** {lob_str}",
+        f"* **Business Function:** {func_str}",
+        f"* **KMH Short Codes:** {', '.join(tax.get('kmh_short_codes', [])) or 'None'}",
+        f"* **Series:** {', '.join(tax.get('series', [])) or 'None'}",
+        f"* **Service Sage Routing:** `{tax.get('in_service_sage', 'NO')}`",
+        f"",
+        f"---",
+        f"",
+        f"### 🛡️ Governance & Compliance",
+        f"* **Data Classification:** `{gov.get('data_classification', 'Internal')}`",
+        f"* **Governance Approval Status:** {'✅ APPROVED' if gov.get('governance_approved') else '⏳ PENDING'}",
+        f"* **Governance Approval Timestamp:** `{gov.get('governance_approval_timestamp', 'N/A')}`",
+        f"* **Business Certified:** `{gov.get('certified_business_approved', 'N/A')}`",
+        f"* **SEC Rule 38a-1 Applicable:** `{'Yes' if gov.get('sec_rule_38a_1') else 'No'}`",
+        f"* **Compliance Retention Tag:** `{tag_name}`",
+        f"",
+        f"---",
+        f"",
+        f"### 👤 Source Provenance & Authors",
+        f"* **Origin System:** {prov.get('source_system', system_name)}",
+        f"* **SharePoint Item ID:** `{prov.get('item_id', 'N/A')}`",
+        f"* **SharePoint Site ID:** `{prov.get('site_id', 'N/A')}`",
+        f"* **Web URL:** [{display_name}]({prov.get('source_web_url', '#')})",
+        f"* **Created By:** {created_str} at `{prov.get('source_created_time', 'N/A')}`",
+        f"* **Last Modified By:** {modified_str} at `{prov.get('source_modified_time', 'N/A')}`",
+    ]
+
+    return "\n".join(lines)
+
+
+def generate_entry_labels(entry_core: Dict[str, Any], aspects: Dict[str, Dict[str, Any]]) -> Dict[str, str]:
+    """
+    Generates sanitized key-value labels for Dataplex search and faceted filtering.
+    """
+    gov = aspects.get("governance-compliance", {})
+    tax = aspects.get("business-taxonomy", {})
+    prov = aspects.get("source-provenance", {})
+
+    labels = {
+        "environment": sanitize_label_value(entry_core.get("environment", "dev")),
+        "medallion_layer": sanitize_label_value(entry_core.get("medallion_layer", "bronze")),
+        "source_system": sanitize_label_value(entry_core.get("source_system", "unstructured")),
+        "data_classification": sanitize_label_value(gov.get("data_classification", "internal")),
+        "governance_approved": "true" if gov.get("governance_approved") else "false",
+        "file_format": sanitize_label_value(prov.get("doc_icon") or entry_core.get("file_extension", "doc")),
+    }
+
+    item_id = prov.get("item_id")
+    if item_id:
+        labels["item_id"] = sanitize_label_value(item_id)
+
+    doc_type_id = tax.get("document_type_lookup_id")
+    if doc_type_id:
+        labels["doc_type_id"] = sanitize_label_value(doc_type_id)
+
+    return labels
 
 
 # =============================================================================
@@ -493,12 +859,13 @@ def resolve_document_and_metadata_uris(
     file_name: str,
     explicit_document_uri: Optional[str] = None,
     source_system: str = "unstructured",
-) -> Tuple[str, str, str]:
+) -> Tuple[str, str, str, Dict[str, str]]:
     """
     Resolves:
     1. doc_gcs_uri (e.g. gs://bucket/path/file.docx)
     2. meta_gcs_uri (e.g. gs://bucket/path/file.docx.json)
     3. fqn (e.g. custom:<source_system>:<bucket>:<doc_path>)
+    4. path_components dictionary (bucket, environment, medallion_layer, source_system, file_stem, file_ext)
     """
     clean_system = source_system.lower().replace(" ", "_").replace("-", "_")
 
@@ -509,7 +876,8 @@ def resolve_document_and_metadata_uris(
         doc_path = parts[1] if len(parts) > 1 else file_name
         fqn = f"custom:{clean_system}:{bucket}:{doc_path}"
         meta_gcs_uri = gcs_metadata_uri if gcs_metadata_uri else f"{explicit_document_uri}.json"
-        return doc_gcs_uri, meta_gcs_uri, fqn
+        path_components = parse_storage_uri_components(doc_gcs_uri)
+        return doc_gcs_uri, meta_gcs_uri, fqn, path_components
 
     if gcs_metadata_uri and gcs_metadata_uri.startswith("gs://"):
         parts = gcs_metadata_uri[5:].split("/", 1)
@@ -519,11 +887,12 @@ def resolve_document_and_metadata_uris(
         if raw_path.endswith(".metadata.json"):
             doc_path = raw_path[:-14]
             meta_path = raw_path
-        elif raw_path.endswith(".json") and any(raw_path.endswith(f".{ext}.json") for ext in ["docx", "pdf", "xlsx", "pptx", "txt", "csv", "doc", "rtf"]):
+        elif raw_path.endswith(".json") and any(
+            raw_path.endswith(f".{ext}.json") for ext in ["docx", "pdf", "xlsx", "pptx", "txt", "csv", "doc", "rtf"]
+        ):
             doc_path = raw_path[:-5]
             meta_path = raw_path
         elif raw_path.endswith(".json"):
-            # Sidecar named metadata.json or similar in the same directory as the file
             folder = os.path.dirname(raw_path)
             doc_path = f"{folder}/{file_name}" if folder else file_name
             meta_path = raw_path
@@ -534,11 +903,13 @@ def resolve_document_and_metadata_uris(
         doc_gcs_uri = f"gs://{bucket}/{doc_path}"
         meta_gcs_uri = f"gs://{bucket}/{meta_path}"
         fqn = f"custom:{clean_system}:{bucket}:{doc_path}"
-        return doc_gcs_uri, meta_gcs_uri, fqn
+        path_components = parse_storage_uri_components(doc_gcs_uri)
+        return doc_gcs_uri, meta_gcs_uri, fqn, path_components
     else:
         clean_name = file_name.replace("/", ".").replace(" ", "_")
         doc_gcs_uri = explicit_document_uri or ""
-        return doc_gcs_uri, gcs_metadata_uri or "", f"custom:{clean_system}:{clean_name}"
+        path_components = parse_storage_uri_components(doc_gcs_uri)
+        return doc_gcs_uri, gcs_metadata_uri or "", f"custom:{clean_system}:{clean_name}", path_components
 
 
 def parse_metadata_json(
@@ -549,7 +920,7 @@ def parse_metadata_json(
 ) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
     """
     Parses document metadata JSON into:
-    1. Entry core metadata (entry_id, display_name, description, fqn, gcs_document_uri, gcs_metadata_uri)
+    1. Enriched Entry core metadata (entry_id, display_name, description, fqn, overview, labels, container_id)
     2. Aspects dictionary keyed by Aspect Type short name.
     """
     system_name = source_system or detect_source_system(raw_json)
@@ -563,25 +934,22 @@ def parse_metadata_json(
     item_id = str(get_field("id") or raw_json.get("id") or "7372")
     file_name = get_field("FileLeafRef") or raw_json.get("name") or "unnamed_file"
     description = get_field("_CheckinComment") or f"{system_name.title()} document {file_name}"
-    prefix = "sp" if system_name == "sharepoint" else (system_name[:4] if system_name != "unstructured" else "doc")
-    entry_id = f"{prefix}-doc-{item_id}".lower().replace("_", "-")
 
-    doc_gcs_uri, meta_gcs_uri, fqn = resolve_document_and_metadata_uris(
+    doc_gcs_uri, meta_gcs_uri, fqn, path_components = resolve_document_and_metadata_uris(
         gcs_metadata_uri=gcs_metadata_uri,
         file_name=file_name,
         explicit_document_uri=gcs_document_uri,
         source_system=system_name,
     )
 
-    entry_core = {
-        "entry_id": entry_id,
-        "display_name": file_name,
-        "description": description,
-        "fully_qualified_name": fqn,
-        "source_system": system_name,
-        "gcs_document_uri": doc_gcs_uri,
-        "gcs_metadata_uri": meta_gcs_uri,
-    }
+    env = path_components.get("environment", "dev")
+    medallion = path_components.get("medallion_layer", "bronze")
+    bucket = path_components.get("bucket", "")
+    file_ext = path_components.get("file_extension", "")
+
+    prefix = "sp" if system_name == "sharepoint" else (system_name[:4] if system_name != "unstructured" else "doc")
+    entry_id = sanitize_dataplex_id(f"{prefix}-doc-{item_id}", 63)
+    container_id = sanitize_dataplex_id(f"container-{env}-{medallion}-{system_name}", 63)
 
     # 1. Aspect 1: Governance & Compliance
     gov_approval_time = raw_json.get("governance_approval_created")
@@ -683,6 +1051,10 @@ def parse_metadata_json(
             "id": str(modified_by_user.get("id", "")),
             "display_name": str(modified_by_user.get("displayName", "")),
         },
+        "environment": env,
+        "medallion_layer": medallion,
+        "bucket_name": bucket,
+        "storage_path": path_components.get("folder_path", ""),
     }
     if src_created:
         provenance_aspect_data["source_created_time"] = src_created
@@ -699,10 +1071,32 @@ def parse_metadata_json(
         "source-provenance": provenance_aspect_data,
     }
 
+    entry_core = {
+        "entry_id": entry_id,
+        "container_id": container_id,
+        "display_name": file_name,
+        "description": description,
+        "fully_qualified_name": fqn,
+        "source_system": system_name,
+        "environment": env,
+        "medallion_layer": medallion,
+        "file_extension": file_ext,
+        "gcs_document_uri": doc_gcs_uri,
+        "gcs_metadata_uri": meta_gcs_uri,
+    }
+
+    # Generate Overview Markdown & Search Labels
+    overview_markdown = generate_overview_markdown(entry_core, aspects)
+    entry_labels = generate_entry_labels(entry_core, aspects)
+
+    entry_core["overview"] = overview_markdown
+    entry_core["labels"] = entry_labels
+
     return entry_core, aspects
 
 
 def fqn_from_gcs_uri(gcs_uri: str, default_name: str) -> str:
     """Generates a Dataplex Fully Qualified Name (FQN) from a GCS URI or custom source."""
-    _, _, fqn = resolve_document_and_metadata_uris(gcs_uri, default_name)
+    _, _, fqn, _ = resolve_document_and_metadata_uris(gcs_uri, default_name)
     return fqn
+
