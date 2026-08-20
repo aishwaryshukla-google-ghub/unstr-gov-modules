@@ -182,6 +182,19 @@ def sync_metadata_to_dataplex(
         parent_entry=parent_entry_name,
     )
 
+    # 7. Publish Data Lineage Link (Populates the 'Lineage' graph tab in Dataplex)
+    try:
+        source_origin = aspects_data.get("source-provenance", {}).get("source_web_url") or gcs_metadata_uri
+        client.publish_data_lineage_link(
+            project_id=project_id,
+            location=location,
+            source_uri=source_origin,
+            target_uri=entry_core["fully_qualified_name"],
+            process_display_name=f"Ingest-{source_sys.title()}-Document",
+        )
+    except Exception as e:
+        logger.warning(f"Could not publish lineage link (non-fatal): {e}")
+
     return {
         "status": "SUCCESS",
         "entry_id": entry_id,
