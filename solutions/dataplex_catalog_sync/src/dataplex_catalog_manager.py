@@ -18,14 +18,14 @@ DATALINEAGE_API_BASE = "https://datalineage.googleapis.com/v1"
 def sanitize_dataplex_id(raw_id: str, max_len: int = 63) -> str:
     """
     Sanitizes a string to be a valid Dataplex resource ID.
-    Must contain only lowercase letters, numbers, hyphens, and underscores.
+    Must contain only lowercase letters, numbers, and hyphens.
     Length must be <= max_len (typically 63).
     """
-    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "-", raw_id).lower()
-    cleaned = re.sub(r"-+", "-", cleaned).strip("-_")
+    cleaned = re.sub(r"[^a-zA-Z0-9-]+", "-", str(raw_id).replace("_", "-")).lower()
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
     if not cleaned:
         cleaned = "asset"
-    return cleaned[:max_len].rstrip("-_")
+    return cleaned[:max_len].rstrip("-")
 
 
 def sanitize_label_value(val: Any, max_len: int = 63) -> str:
@@ -938,7 +938,7 @@ def parse_metadata_json(
     def get_field(key: str, default: Any = ""):
         return custom_fields.get(key, list_item_fields.get(key, raw_json.get(key, default)))
 
-    item_id = str(get_field("id") or raw_json.get("id") or "7372")
+    item_id = str(get_field("id") or raw_json.get("id") or (list_item.get("id") if isinstance(list_item, dict) else "") or "")
     file_name = get_field("FileLeafRef") or raw_json.get("name") or "unnamed_file"
     description = get_field("_CheckinComment") or f"{system_name.title()} document {file_name}"
 
@@ -953,9 +953,10 @@ def parse_metadata_json(
     medallion = path_components.get("medallion_layer", "bronze")
     bucket = path_components.get("bucket", "")
     file_ext = path_components.get("file_extension", "")
+    file_stem = path_components.get("file_stem") or file_name
 
     prefix = "sp" if system_name == "sharepoint" else (system_name[:4] if system_name != "unstructured" else "doc")
-    entry_id = sanitize_dataplex_id(f"{prefix}-doc-{item_id}", 63)
+    entry_id = sanitize_dataplex_id(f"{prefix}-{file_stem}", 63)
     container_id = sanitize_dataplex_id(f"container-{env}-{medallion}-{system_name}", 63)
 
     # 1. Aspect 1: Governance & Compliance
