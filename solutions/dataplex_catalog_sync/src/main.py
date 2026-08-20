@@ -10,6 +10,7 @@ It supports two invocation modes:
 2. Direct REST HTTP POST (single document payload)
 """
 
+import os
 import json
 import logging
 from typing import Any, Dict
@@ -24,6 +25,10 @@ from dataplex_catalog_manager import (
     get_source_provenance_template,
     parse_metadata_json,
 )
+
+# Disable mTLS probes to ensure compatibility across client environments
+os.environ.setdefault("GOOGLE_API_USE_CLIENT_CERTIFICATE", "false")
+os.environ.setdefault("GOOGLE_API_USE_MTLS_ENDPOINT", "never")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")

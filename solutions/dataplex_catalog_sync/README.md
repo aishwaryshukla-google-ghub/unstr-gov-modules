@@ -15,43 +15,35 @@ It dynamically creates/ensures:
 
 ## Directory Structure
 
-* **`main.py`**: Dual-purpose entry point:
-  * **HTTP Mode**: Cloud Run / Cloud Run Function handler supporting BigQuery Remote Function batch calls (`{ "calls": [...] }`) and direct JSON POST.
-  * **CLI Mode**: `python main.py <gcs_uri_or_local_file>`
-* **`dataplex_catalog_manager.py`**: Core Dataplex Catalog REST API client, schema templates, and JSON parser/transformer.
+* **`src/main.py`**: Functions Framework HTTP entrypoint supporting BigQuery Remote Function batch calls (`{ "calls": [...] }`) and direct JSON POST.
+* **`src/dataplex_catalog_manager.py`**: Core Dataplex Catalog REST API client, schema templates, and JSON parser/transformer.
 * **`sample_metadata.json`**: Populated sample metadata JSON for testing.
 * **`test_local.py`**: Unit test verifying JSON parsing and aspect payload mapping.
-* **`remote_function.sql`**: BigQuery SQL DDL to register the remote UDF and execute batch catalog sync queries.
-* **`deploy.sh`**: One-click deployment script to Cloud Run.
-* **`Dockerfile`** / **`requirements.txt`**: Container definition and Python dependencies.
+* **`test_live_argolis.py`**: End-to-end integration test against live Dataplex in GCP.
+* **`test_live_deployed.py`**: HTTP test invoking the live deployed Cloud Run Function.
+* **`remote_function.sql`**: BigQuery SQL DDL and usage examples.
+* **`main.tf`** / **`variables.tf`** / **`outputs.tf`**: Standalone solution recipe deploying the Cloud Run Function.
 
 ---
 
-## 1. Local Testing
+## 1. Testing
 
 ```bash
 # Run unit test
 ./virtual_envs/demo_dev_venv/bin/python3 experiments/unstr-gov-modules/solutions/dataplex_catalog_sync/test_local.py
 
-# Run live Argolis test
+# Run live Dataplex integration test
 ./virtual_envs/demo_dev_venv/bin/python3 experiments/unstr-gov-modules/solutions/dataplex_catalog_sync/test_live_argolis.py
 ```
 
 ---
 
-## 2. Deployment
+## 2. Terraform Deployment
 
-### Option A: Via Terraform (Recommended)
 From the root of `experiments/unstr-gov-modules`:
 ```bash
-terraform apply -target=module.dataplex_catalog_sync
-```
-
-### Option B: Via Automated Deploy Script
-```bash
-cd experiments/unstr-gov-modules/solutions/dataplex_catalog_sync
-chmod +x deploy.sh
-./deploy.sh databricks-playground-497321 us-central1
+# Deploy Cloud Run Function and BigQuery Remote Function
+terraform apply -target=module.dataplex_catalog_sync -target=module.dataplex_catalog_sync_remote_function
 ```
 
 ---

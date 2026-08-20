@@ -107,39 +107,9 @@ module "cloud_run_function" {
   ingress_settings               = var.ingress_settings
   all_traffic_on_latest_revision = var.all_traffic_on_latest_revision
   service_account_email          = local.resolved_sa_email
-  build_service_account          = var.build_service_account != null ? var.build_service_account : local.resolved_sa_email
+  build_service_account          = var.build_service_account
   invokers                       = local.resolved_invokers
   invoker_role                   = var.invoker_role
   labels                         = var.labels
 }
 
-# -----------------------------------------------------------------------------
-# 5. BIGQUERY REMOTE FUNCTION (SCALAR UDF WITH CLOUD RESOURCE CONNECTION)
-# -----------------------------------------------------------------------------
-module "bigquery_remote_function" {
-  count                  = var.enable_bigquery_remote_function ? 1 : 0
-  source                 = "../bigquery/functions/remote"
-  project_id             = var.project_id
-  region                 = var.region
-  dataset_id             = var.bq_dataset_id
-  routine_id             = var.bq_routine_id
-  connection_id          = var.bq_connection_id
-  existing_connection_id = var.existing_bq_connection_id
-  endpoint               = module.cloud_run_function.function_uri
-  cloud_run_service_name = module.cloud_run_function.function_name
-  max_batching_rows      = var.bq_max_batching_rows
-
-  arguments = [
-    { name = "gcs_metadata_uri", data_type = jsonencode({ typeKind = "STRING" }) },
-    { name = "gcs_document_uri", data_type = jsonencode({ typeKind = "STRING" }) },
-    { name = "project_id", data_type = jsonencode({ typeKind = "STRING" }) },
-    { name = "location", data_type = jsonencode({ typeKind = "STRING" }) },
-    { name = "entry_group_id", data_type = jsonencode({ typeKind = "STRING" }) }
-  ]
-
-  return_type = jsonencode({ typeKind = "JSON" })
-
-  depends_on = [
-    module.cloud_run_function
-  ]
-}

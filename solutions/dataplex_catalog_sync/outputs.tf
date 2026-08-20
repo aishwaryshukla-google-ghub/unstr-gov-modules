@@ -18,7 +18,12 @@ output "service_account_email" {
   value       = local.resolved_sa_email
 }
 
-output "bigquery_remote_function_id" {
-  description = "The fully qualified ID of the BigQuery Remote Function."
-  value       = var.enable_bigquery_remote_function ? module.bigquery_remote_function[0].routine_id : null
+output "source_bucket_name" {
+  description = "The GCS bucket holding the function source ZIP package."
+  value       = google_storage_bucket.source_bucket.name
+}
+
+output "source_object_name" {
+  description = "The GCS object key for the deployed function source ZIP."
+  value       = google_storage_bucket_object.function_source_object.name
 }

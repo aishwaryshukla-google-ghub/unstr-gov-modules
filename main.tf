@@ -249,20 +249,28 @@ module "cloud_run_function" {
 }
 
 # =============================================================================
-# 5. BIGQUERY REMOTE FUNCTION SOLUTION
+# 5. UNSTRUCTURED GOVERNANCE BIGQUERY DATASET & REMOTE FUNCTION SOLUTION
 # Wires BigQuery SQL directly to the Cloud Run Function via Cloud Resource Connection
 # =============================================================================
+resource "google_bigquery_dataset" "unstructured_governance" {
+  dataset_id  = "unstructured_governance"
+  project     = var.project_id
+  location    = var.region
+  description = "Dataset for unstructured document governance remote functions and object tables"
+}
+
 module "bigquery_remote_function" {
   source                 = "./solutions/bigquery/functions/remote"
   project_id             = var.project_id
   region                 = var.region
-  dataset_id             = "unstructured_governance"
+  dataset_id             = google_bigquery_dataset.unstructured_governance.dataset_id
   routine_id             = "retrieve_llm_result"
   endpoint               = module.cloud_run_function.function_uri
   cloud_run_service_name = module.cloud_run_function.function_name
 
   depends_on = [
-    module.cloud_run_function
+    module.cloud_run_function,
+    google_bigquery_dataset.unstructured_governance
   ]
 }
 
@@ -346,17 +354,49 @@ resource "google_cloud_identity_group" "claims_data_consumers" {
 # Synchronizes SharePoint/Graph document metadata JSON from GCS into Dataplex Catalog.
 # =============================================================================
 module "dataplex_catalog_sync" {
-  source                          = "./solutions/dataplex_catalog_sync"
-  project_id                      = var.project_id
-  region                          = var.region
-  deploy_sa_email                 = var.deploy_sa_email
-  create_service_account          = true
-  service_account_id              = "nyl-dataplex-sync-sa"
-  enable_bigquery_remote_function = true
-  bq_dataset_id                   = "unstructured_governance"
-  bq_routine_id                   = "sync_gcs_metadata_to_dataplex"
-  bq_connection_id                = "dataplex_catalog_conn"
+  source                 = "./solutions/dataplex_catalog_sync"
+  project_id             = var.project_id
+  region                 = var.region
+  deploy_sa_email        = var.deploy_sa_email
+  create_service_account = true
+  service_account_id     = "nyl-dataplex-sync-sa"
+  invokers               = [
+    "serviceAccount:440211474906-compute@developer.gserviceaccount.com",
+    "user:admin@aishwaryshukla.altostrat.com"
+  ]
 }
+
+# =============================================================================
+# 11. DATAPLEX UNIVERSAL CATALOG METADATA SYNC BIGQUERY REMOTE FUNCTION
+# Wires BigQuery SQL directly to the Dataplex Catalog Sync Cloud Run Function
+# =============================================================================
+module "dataplex_catalog_sync_remote_function" {
+  source                 = "./solutions/bigquery/functions/remote"
+  project_id             = var.project_id
+  region                 = var.region
+  dataset_id             = google_bigquery_dataset.unstructured_governance.dataset_id
+  routine_id             = "sync_gcs_metadata_to_dataplex"
+  connection_id          = "dataplex_catalog_conn"
+  endpoint               = module.dataplex_catalog_sync.function_uri
+  cloud_run_service_name = module.dataplex_catalog_sync.function_name
+  max_batching_rows      = 10
+
+  arguments = [
+    { name = "gcs_metadata_uri", data_type = jsonencode({ typeKind = "STRING" }) },
+    { name = "gcs_document_uri", data_type = jsonencode({ typeKind = "STRING" }) },
+    { name = "project_id", data_type = jsonencode({ typeKind = "STRING" }) },
+    { name = "location", data_type = jsonencode({ typeKind = "STRING" }) },
+    { name = "entry_group_id", data_type = jsonencode({ typeKind = "STRING" }) }
+  ]
+
+  return_type = jsonencode({ typeKind = "JSON" })
+
+  depends_on = [
+    module.dataplex_catalog_sync,
+    google_bigquery_dataset.unstructured_governance
+  ]
+}
+
 
 
 

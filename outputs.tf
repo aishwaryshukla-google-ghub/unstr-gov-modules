@@ -75,6 +75,12 @@ output "dataplex_catalog_sync_function_uri" {
 
 output "dataplex_catalog_sync_remote_function_id" {
   description = "The routine ID of the Dataplex Catalog Sync BigQuery Remote Function."
-  value       = module.dataplex_catalog_sync.bigquery_remote_function_id
+  value       = module.dataplex_catalog_sync_remote_function.routine_id
 }
+
+output "dataplex_catalog_sync_connection_id" {
+  description = "The BigQuery Cloud Resource Connection ID used by the Dataplex Catalog Sync Remote Function."
+  value       = module.dataplex_catalog_sync_remote_function.connection_id
+}
+
 

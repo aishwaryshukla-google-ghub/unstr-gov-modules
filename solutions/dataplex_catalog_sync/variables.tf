@@ -132,13 +132,13 @@ variable "build_service_account" {
 variable "invokers" {
   description = "List of IAM principals allowed to invoke the function."
   type        = list(string)
-  default     = ["allUsers"]
+  default     = []
 }
 
 variable "invoker_role" {
   description = "IAM role granted for invokers."
   type        = string
-  default     = "roles/cloudfunctions.invoker"
+  default     = "roles/run.invoker"
 }
 
 variable "labels" {
@@ -150,40 +150,4 @@ variable "labels" {
     managed_by          = "terraform"
     data_classification = "confidential"
   }
-}
-
-variable "enable_bigquery_remote_function" {
-  description = "Whether to automatically register the BigQuery Remote UDF."
-  type        = bool
-  default     = true
-}
-
-variable "bq_dataset_id" {
-  description = "BigQuery dataset to register the remote UDF in."
-  type        = string
-  default     = "unstructured_governance"
-}
-
-variable "bq_routine_id" {
-  description = "BigQuery remote function routine ID."
-  type        = string
-  default     = "sync_gcs_metadata_to_dataplex"
-}
-
-variable "bq_connection_id" {
-  description = "BigQuery Cloud Resource connection ID to create or use."
-  type        = string
-  default     = "dataplex_catalog_conn"
-}
-
-variable "existing_bq_connection_id" {
-  description = "Existing BigQuery Connection resource name if already created."
-  type        = string
-  default     = null
-}
-
-variable "bq_max_batching_rows" {
-  description = "Max rows sent per batch call from BigQuery."
-  type        = number
-  default     = 10
 }
