@@ -332,8 +332,10 @@ class DataplexCatalogClient:
 
         payload = {
             "entryType": container_entry_type,
-            "displayName": display_name,
-            "description": description,
+            "entrySource": {
+                "displayName": display_name,
+                "description": description,
+            },
             "fullyQualifiedName": f"custom:container:{entry_group_id}:{container_id}",
         }
         create_url = f"{DATAPLEX_API_BASE}/{parent}/entries?entryId={container_id}"
@@ -368,7 +370,7 @@ class DataplexCatalogClient:
     ) -> Dict[str, Any]:
         """
         Creates or updates a Dataplex Catalog Entry with its attached Aspects,
-        rich Markdown Overview, searchable Labels, and optional parent container link.
+        rich Markdown Overview, searchable Labels (under entrySource), and optional parent container link.
         """
         entry_group_id = sanitize_dataplex_id(entry_group_id)
         entry_id = sanitize_dataplex_id(entry_id)
@@ -389,32 +391,37 @@ class DataplexCatalogClient:
                 "data": aspect_data,
             }
 
-        entry_payload: Dict[str, Any] = {
-            "entryType": entry_type_name,
-            "fullyQualifiedName": fully_qualified_name,
+        # If overview markdown is provided, attach the standard Dataplex overview aspect
+        if overview_content:
+            formatted_aspects["dataplex-types.global.overview"] = {
+                "aspectType": "projects/dataplex-types/locations/global/aspectTypes/overview",
+                "data": {"content": overview_content},
+            }
+
+        # Build EntrySource object (where displayName, description, and labels reside in Dataplex v1)
+        entry_source_payload: Dict[str, Any] = {
             "displayName": display_name,
             "description": description,
-            "aspects": formatted_aspects,
         }
 
-        if overview_content:
-            entry_payload["overview"] = {"content": overview_content}
-
         if labels:
-            entry_payload["labels"] = {
+            entry_source_payload["labels"] = {
                 sanitize_dataplex_id(k, 63): sanitize_label_value(v, 63)
                 for k, v in labels.items()
                 if v is not None and str(v).strip() != ""
             }
 
+        entry_payload: Dict[str, Any] = {
+            "entryType": entry_type_name,
+            "fullyQualifiedName": fully_qualified_name,
+            "entrySource": entry_source_payload,
+            "aspects": formatted_aspects,
+        }
+
         if parent_entry:
             entry_payload["parentEntry"] = parent_entry
 
-        update_mask_fields = ["aspects", "displayName", "description"]
-        if overview_content:
-            update_mask_fields.append("overview")
-        if labels:
-            update_mask_fields.append("labels")
+        update_mask_fields = ["aspects", "entrySource"]
         if parent_entry:
             update_mask_fields.append("parentEntry")
 
