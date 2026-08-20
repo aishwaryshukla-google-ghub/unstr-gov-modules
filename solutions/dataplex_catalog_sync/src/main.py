@@ -1,31 +1,55 @@
-import os
+"""
+Dataplex Universal Catalog Sync - Cloud Run Function
+
+This module acts as the HTTP handler for synchronizing document metadata
+stored in Google Cloud Storage (GCS) directly into Google Cloud Dataplex
+Universal Catalog (formerly Knowledge Catalog).
+
+It supports two invocation modes:
+1. BigQuery Remote Function (batch evaluation via {"calls": [...]})
+2. Direct REST HTTP POST (single document payload)
+"""
+
 import json
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
+from flask import Request, jsonify
 import functions_framework
-from flask import jsonify, Request
 from google.cloud import storage
 
 from dataplex_catalog_manager import (
     DataplexCatalogClient,
-    get_governance_compliance_template,
     get_business_taxonomy_template,
+    get_governance_compliance_template,
     get_source_provenance_template,
     parse_metadata_json,
 )
 
+# Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("dataplex-catalog-sync")
 
+# Reusable Cloud Storage client instance
+_storage_client = None
 
-def read_gcs_or_local_json(file_path: str) -> Dict[str, Any]:
-    """Reads JSON from GCS or local filesystem."""
+
+def get_storage_client() -> storage.Client:
+    """Returns a cached instance of the Google Cloud Storage client."""
+    global _storage_client
+    if _storage_client is None:
+        _storage_client = storage.Client()
+    return _storage_client
+
+
+def read_json_payload(file_path: str) -> Dict[str, Any]:
+    """
+    Reads and parses a JSON file from either GCS (gs://...) or the local filesystem.
+    """
     if file_path.startswith("gs://"):
-        parts = file_path[5:].split("/", 1)
-        bucket_name, blob_name = parts[0], parts[1]
-        storage_client = storage.Client()
-        blob = storage_client.bucket(bucket_name).blob(blob_name)
+        bucket_name, blob_name = file_path[5:].split("/", 1)
+        blob = get_storage_client().bucket(bucket_name).blob(blob_name)
         return json.loads(blob.download_as_text())
+
     with open(file_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -38,29 +62,30 @@ def sync_metadata_to_dataplex(
     entry_group_id: str,
 ) -> Dict[str, Any]:
     """
-    Orchestrates metadata synchronization to Google Cloud Dataplex Universal Catalog:
-    1. Downloads & parses the metadata JSON from GCS.
-    2. Ensures Dataplex Entry Group, Aspect Types, and Entry Type exist.
-    3. Creates or updates the Catalog Entry with populated Aspects.
+    Core sync workflow:
+    1. Reads metadata JSON from GCS and parses entry core & aspect dictionaries.
+    2. Ensures the Entry Group exists in Dataplex.
+    3. Ensures the three core Aspect Types exist (Governance, Taxonomy, Provenance).
+    4. Ensures the Entry Type exists.
+    5. Publishes/updates the Entry with attached aspect data.
     """
     logger.info(
-        f"Syncing to Dataplex -> Meta: {gcs_metadata_uri}, Doc: {gcs_document_uri} "
-        f"(Project: {project_id}, Location: {location}, Group: {entry_group_id})"
+        f"Syncing document to Dataplex: Meta={gcs_metadata_uri}, Doc={gcs_document_uri} "
+        f"[Project: {project_id}, Location: {location}, Group: {entry_group_id}]"
     )
 
-    # 1. Read JSON and parse core entry & aspects
-    raw_json = read_gcs_or_local_json(gcs_metadata_uri)
+    # 1. Read JSON and parse core entry attributes & aspects
+    raw_json = read_json_payload(gcs_metadata_uri)
     entry_core, aspects_data = parse_metadata_json(
         raw_json=raw_json,
         gcs_metadata_uri=gcs_metadata_uri,
         gcs_document_uri=gcs_document_uri,
     )
     entry_id = entry_core["entry_id"]
-    entry_type_id = "sharepoint-document"
 
     client = DataplexCatalogClient()
 
-    # 2. Ensure Entry Group exists
+    # 2. Ensure target Entry Group exists
     client.ensure_entry_group(
         project_id=project_id,
         location=location,
@@ -69,49 +94,53 @@ def sync_metadata_to_dataplex(
         description=f"Catalog entry group for {entry_group_id}",
     )
 
-    # 3. Ensure Aspect Types exist
-    gov_aspect_name = client.ensure_aspect_type(
-        project_id=project_id,
-        location=location,
-        aspect_type_id="governance-compliance",
-        display_name="Governance & Compliance",
-        description="Regulatory review, approval timestamps, and security classification metadata",
-        metadata_template=get_governance_compliance_template(),
-    )
+    # 3. Define and ensure all Aspect Types exist
+    aspect_definitions = [
+        (
+            "governance-compliance",
+            "Governance & Compliance",
+            "Regulatory review, approval timestamps, and security classification metadata",
+            get_governance_compliance_template(),
+        ),
+        (
+            "business-taxonomy",
+            "Business Taxonomy",
+            "LOB mappings, Term Store hierarchy, and document classification codes",
+            get_business_taxonomy_template(),
+        ),
+        (
+            "source-provenance",
+            "Source Provenance",
+            "Originating SharePoint site, drive, item IDs, authors, and file metadata",
+            get_source_provenance_template(),
+        ),
+    ]
 
-    tax_aspect_name = client.ensure_aspect_type(
-        project_id=project_id,
-        location=location,
-        aspect_type_id="business-taxonomy",
-        display_name="Business Taxonomy",
-        description="LOB mappings, Term Store hierarchy, and document classification codes",
-        metadata_template=get_business_taxonomy_template(),
-    )
+    aspect_names = {}
+    for aspect_id, display_name, description, template in aspect_definitions:
+        aspect_names[aspect_id] = client.ensure_aspect_type(
+            project_id=project_id,
+            location=location,
+            aspect_type_id=aspect_id,
+            display_name=display_name,
+            description=description,
+            metadata_template=template,
+        )
 
-    prov_aspect_name = client.ensure_aspect_type(
-        project_id=project_id,
-        location=location,
-        aspect_type_id="source-provenance",
-        display_name="Source Provenance",
-        description="Originating SharePoint site, drive, item IDs, authors, and file metadata",
-        metadata_template=get_source_provenance_template(),
-    )
-
-    # 4. Ensure Entry Type exists
+    # 4. Ensure the Entry Type exists and allows these aspects
     entry_type_name = client.ensure_entry_type(
         project_id=project_id,
         location=location,
-        entry_type_id=entry_type_id,
+        entry_type_id="sharepoint-document",
         display_name="SharePoint Document Asset",
         description="Unstructured asset type for SharePoint documents",
-        allowed_aspect_type_names=[gov_aspect_name, tax_aspect_name, prov_aspect_name],
+        allowed_aspect_type_names=list(aspect_names.values()),
     )
 
-    # 5. Create or Update Entry with populated Aspects
+    # 5. Build aspects payload and publish/update the entry
     aspects_payload = {
-        gov_aspect_name: aspects_data["governance-compliance"],
-        tax_aspect_name: aspects_data["business-taxonomy"],
-        prov_aspect_name: aspects_data["source-provenance"],
+        aspect_name: aspects_data[aspect_id]
+        for aspect_id, aspect_name in aspect_names.items()
     }
 
     entry_result = client.create_or_update_entry(
@@ -129,7 +158,10 @@ def sync_metadata_to_dataplex(
     return {
         "status": "SUCCESS",
         "entry_id": entry_id,
-        "entry_name": entry_result.get("name", f"projects/{project_id}/locations/{location}/entryGroups/{entry_group_id}/entries/{entry_id}"),
+        "entry_name": entry_result.get(
+            "name",
+            f"projects/{project_id}/locations/{location}/entryGroups/{entry_group_id}/entries/{entry_id}",
+        ),
         "display_name": entry_core["display_name"],
         "fully_qualified_name": entry_core["fully_qualified_name"],
         "gcs_document_uri": entry_core.get("gcs_document_uri"),
@@ -146,37 +178,38 @@ def sync_metadata_to_dataplex(
 def bq_remote_function_handler(request: Request):
     """
     Unified HTTP handler for Cloud Run Function & BigQuery Remote Function.
-    1. BigQuery Remote Function batch mode: {"calls": [ [meta_uri, doc_uri, project, location, group] ]}
-    2. Direct REST JSON mode: {"gcs_metadata_uri": "...", "gcs_document_uri": "...", ...}
+
+    Supported Contracts:
+    - BigQuery Remote Function (batch):
+        {"calls": [ [meta_uri, doc_uri, project_id, location, entry_group_id], ... ]}
+        -> returns {"replies": [ {...}, ... ]}
+
+    - Direct REST JSON:
+        {"gcs_metadata_uri": "...", "gcs_document_uri": "...", "project_id": "...", "location": "...", "entry_group_id": "..."}
+        -> returns {...}
     """
     request_json = request.get_json(silent=True) or {}
 
-    # Mode 1: BigQuery Remote Function (Batch calls contract)
+    # Mode 1: BigQuery Remote Function batch evaluation
     if "calls" in request_json:
         replies = []
         for call in request_json.get("calls", []):
             try:
-                gcs_meta_uri = call[0]
-                gcs_doc_uri = call[1]
-                project_id = call[2]
-                location = call[3]
-                entry_group_id = call[4]
-
                 res = sync_metadata_to_dataplex(
-                    gcs_metadata_uri=gcs_meta_uri,
-                    gcs_document_uri=gcs_doc_uri,
-                    project_id=project_id,
-                    location=location,
-                    entry_group_id=entry_group_id,
+                    gcs_metadata_uri=call[0],
+                    gcs_document_uri=call[1],
+                    project_id=call[2],
+                    location=call[3],
+                    entry_group_id=call[4],
                 )
                 replies.append(res)
             except Exception as e:
-                logger.exception(f"Error processing row {call}: {e}")
+                logger.exception(f"Error syncing batch row {call}: {e}")
                 replies.append({"status": "ERROR", "error": str(e)})
 
         return jsonify({"replies": replies}), 200
 
-    # Mode 2: Direct REST JSON invocation
+    # Mode 2: Direct REST JSON POST
     res = sync_metadata_to_dataplex(
         gcs_metadata_uri=request_json["gcs_metadata_uri"],
         gcs_document_uri=request_json["gcs_document_uri"],
