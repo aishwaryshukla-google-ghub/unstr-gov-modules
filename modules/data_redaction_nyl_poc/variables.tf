@@ -56,3 +56,15 @@ variable "ai_gateway_url" {
   type        = string
   default     = "https://test.aigw.newyorklife.com/eis-llm-gemini/gemini-3.5-flash:generateContent"
 }
+
+variable "vpc_connector" {
+  description = "Optional Serverless VPC Access connector name/path to route traffic through NYL internal corporate network"
+  type        = string
+  default     = null
+}
+
+variable "vpc_connector_egress_settings" {
+  description = "VPC connector egress settings. Allowed: ALL_TRAFFIC, PRIVATE_RANGES_ONLY."
+  type        = string
+  default     = "ALL_TRAFFIC"
+}

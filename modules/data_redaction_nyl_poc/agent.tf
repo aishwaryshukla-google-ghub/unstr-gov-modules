@@ -111,11 +111,13 @@ resource "google_cloudfunctions2_function" "nyl_agent_function" {
   }
 
   service_config {
-    max_instance_count    = 2
-    available_memory      = "512M"
-    timeout_seconds       = 120
-    ingress_settings      = var.ingress_settings
-    service_account_email = var.service_account_email
+    max_instance_count             = 2
+    available_memory               = "512M"
+    timeout_seconds                = 120
+    ingress_settings               = var.ingress_settings
+    service_account_email          = var.service_account_email
+    vpc_connector                  = var.vpc_connector
+    vpc_connector_egress_settings  = var.vpc_connector != null ? var.vpc_connector_egress_settings : null
     environment_variables = {
       PROJECT_ID     = var.project_id
       REGION         = var.region
