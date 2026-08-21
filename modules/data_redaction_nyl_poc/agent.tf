@@ -6,6 +6,8 @@ resource "google_storage_bucket" "agent_memory" {
   location                    = var.region
   project                     = var.project_id
   uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = true
   labels                      = var.labels
 }
 
@@ -48,7 +50,7 @@ resource "google_cloudfunctions2_function" "nyl_mcp_server" {
     max_instance_count    = 2
     available_memory      = "512M"
     timeout_seconds       = 120
-    ingress_settings      = "ALLOW_INTERNAL_AND_GCLB"
+    ingress_settings      = var.ingress_settings
     service_account_email = var.service_account_email
     environment_variables = {
       PROJECT_ID    = var.project_id
@@ -56,6 +58,12 @@ resource "google_cloudfunctions2_function" "nyl_mcp_server" {
       MEMORY_BUCKET = google_storage_bucket.agent_memory.name
     }
   }
+
+  depends_on = [
+    google_project_iam_member.storage_viewer,
+    google_project_iam_member.log_writer,
+    google_project_iam_member.artifact_writer
+  ]
 }
 
 # Allow Agent Function to call MCP Server
@@ -106,7 +114,7 @@ resource "google_cloudfunctions2_function" "nyl_agent_function" {
     max_instance_count    = 2
     available_memory      = "512M"
     timeout_seconds       = 120
-    ingress_settings      = "ALLOW_INTERNAL_AND_GCLB"
+    ingress_settings      = var.ingress_settings
     service_account_email = var.service_account_email
     environment_variables = {
       PROJECT_ID     = var.project_id
@@ -115,6 +123,14 @@ resource "google_cloudfunctions2_function" "nyl_agent_function" {
       MCP_SERVER_URL = google_cloudfunctions2_function.nyl_mcp_server.service_config[0].uri
     }
   }
+
+  depends_on = [
+    google_project_iam_member.storage_viewer,
+    google_project_iam_member.log_writer,
+    google_project_iam_member.artifact_writer,
+    google_project_iam_member.agent_vertex_user,
+    google_storage_bucket_iam_member.agent_memory_admin
+  ]
 }
 
 # Allow BigQuery Connection to invoke CRF - AGENT

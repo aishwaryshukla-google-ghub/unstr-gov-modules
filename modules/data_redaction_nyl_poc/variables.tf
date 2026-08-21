@@ -38,3 +38,9 @@ variable "labels" {
     managed_by          = "harness-iacm"
   }
 }
+
+variable "ingress_settings" {
+  description = "Ingress settings for Cloud Run functions"
+  type        = string
+  default     = "ALLOW_INTERNAL_AND_GCLB"
+}

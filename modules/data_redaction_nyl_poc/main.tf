@@ -10,6 +10,7 @@ resource "google_storage_bucket" "function_bucket" {
   location                    = var.region
   project                     = var.project_id
   uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
   labels                      = var.labels
 }
 
@@ -46,7 +47,7 @@ resource "google_cloudfunctions2_function" "nyl_flask_app_cloud_function" {
     max_instance_count    = 1
     available_memory      = "256M"
     timeout_seconds       = 60
-    ingress_settings      = "ALLOW_INTERNAL_AND_GCLB"
+    ingress_settings      = var.ingress_settings
     service_account_email = var.service_account_email
     environment_variables = {
       INSPECT_TEMPLATE_NAME    = google_data_loss_prevention_inspect_template.nyl_inspect_template.id
@@ -55,6 +56,12 @@ resource "google_cloudfunctions2_function" "nyl_flask_app_cloud_function" {
       PROJECT_ID               = var.project_id
     }
   }
+
+  depends_on = [
+    google_project_iam_member.storage_viewer,
+    google_project_iam_member.log_writer,
+    google_project_iam_member.artifact_writer
+  ]
 }
 
 resource "google_cloud_run_service_iam_member" "invoker" {
@@ -111,6 +118,24 @@ resource "google_project_iam_member" "dlp_template_reader" {
 resource "google_project_iam_member" "service_usage" {
   project = var.project_id
   role    = "roles/serviceusage.serviceUsageConsumer"
+  member  = "serviceAccount:${var.service_account_email}"
+}
+
+resource "google_project_iam_member" "storage_viewer" {
+  project = var.project_id
+  role    = "roles/storage.objectViewer"
+  member  = "serviceAccount:${var.service_account_email}"
+}
+
+resource "google_project_iam_member" "log_writer" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${var.service_account_email}"
+}
+
+resource "google_project_iam_member" "artifact_writer" {
+  project = var.project_id
+  role    = "roles/artifactregistry.writer"
   member  = "serviceAccount:${var.service_account_email}"
 }
 
