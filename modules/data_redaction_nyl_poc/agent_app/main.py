@@ -79,6 +79,29 @@ def get_auth_headers(target_url):
     except Exception:
         return {"Content-Type": "application/json"}
 
+def get_ssl_context():
+    """Creates SSL context supporting custom corporate certs and proxy bypass."""
+    import ssl
+    if os.environ.get("DISABLE_SSL_VERIFY", "").lower() in ("true", "1", "yes"):
+        ctx = ssl._create_unverified_context()
+        ctx.check_hostname = False
+        return ctx
+    ca_bundle = os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get("CURL_CA_BUNDLE")
+    if ca_bundle and os.path.exists(ca_bundle):
+        try:
+            return ssl.create_default_context(cafile=ca_bundle)
+        except Exception:
+            pass
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        pass
+    try:
+        return ssl.create_default_context()
+    except Exception:
+        return ssl._create_unverified_context()
+
 def get_bearer_token() -> str:
     """Fetch OAuth2 Bearer token from GCP metadata server or google.auth."""
     try:
@@ -127,36 +150,63 @@ def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
     raise Exception(f"HTTP {resp.status_code}: {resp.text[:120]}")
 
 def query_vertex_rest(prompt: str, history: list = None) -> str:
-    """Direct REST invocation of Vertex AI model matching solutions/cloud_run_function."""
+    """
+    Direct REST invocation of Google Gemini on Vertex AI matching solutions/cloud_run_function/src/services/model_service.py.
+    """
+    import urllib.request
+    import urllib.error
+    
     token = get_bearer_token()
     proj = os.environ.get("PROJECT_ID", PROJECT_ID)
     loc = os.environ.get("REGION", REGION)
     model = os.environ.get("MODEL_NAME", MODEL_NAME)
     
-    endpoint_url = f"https://aiplatform.googleapis.com/v1/projects/{proj}/locations/{loc}/publishers/google/models/{model}:generateContent"
+    # Regional vs global endpoint hostname (solutions/cloud_run_function pattern)
+    host = "aiplatform.googleapis.com" if loc == "global" else f"{loc}-aiplatform.googleapis.com"
+    endpoint_url = f"https://{host}/v1/projects/{proj}/locations/{loc}/publishers/google/models/{model}:generateContent"
     
-    parts = []
+    gemini_parts = []
     if history:
         for turn in history[-4:]:
-            parts.append({"text": f"{turn.get('role')}: {turn.get('text')}"})
-    parts.append({"text": prompt})
+            gemini_parts.append({"text": f"{turn.get('role', 'user')}: {turn.get('text', '')}"})
+    gemini_parts.append({"text": prompt})
     
     payload = {
-        "contents": [{"role": "user", "parts": parts}],
-        "generation_config": {"temperature": 0.2, "maxOutputTokens": 2048}
+        "contents": [
+            {
+                "role": "user",
+                "parts": gemini_parts
+            }
+        ],
+        "generation_config": {
+            "temperature": 0.2,
+            "maxOutputTokens": 4096
+        }
     }
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
-    resp = requests.post(endpoint_url, json=payload, headers=headers, timeout=15)
-    if resp.status_code == 200:
-        data = resp.json()
-        candidates = data.get("candidates", [])
-        if candidates:
-            parts = candidates[0].get("content", {}).get("parts", [])
-            return "".join(p.get("text", "") for p in parts)
-    raise Exception(f"HTTP {resp.status_code}: {resp.text[:120]}")
+    
+    req = urllib.request.Request(
+        endpoint_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST"
+    )
+    
+    try:
+        ssl_ctx = get_ssl_context()
+        with urllib.request.urlopen(req, context=ssl_ctx, timeout=15) as resp:
+            resp_data = json.loads(resp.read().decode("utf-8"))
+            candidates = resp_data.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                return "".join(p.get("text", "") for p in parts)
+            return "No text candidates generated."
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8")
+        raise RuntimeError(f"Vertex HTTP {e.code}: {err_body[:160]}")
 
 def execute_tool_locally(tool_name: str, tool_args: dict) -> str:
     """Executes tool logic directly if HTTP MCP server is blocked by VPC ingress constraints."""
