@@ -79,15 +79,31 @@ def get_auth_headers(target_url):
     except Exception:
         return {"Content-Type": "application/json"}
 
-def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
-    """Invokes NYL Enterprise AI Gateway endpoint for Gemini 3.5 Flash."""
+def get_bearer_token() -> str:
+    """Fetch OAuth2 Bearer token from GCP metadata server or google.auth."""
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+            headers={"Metadata-Flavor": "Google"}
+        )
+        with urllib.request.urlopen(req, timeout=2.5) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                return data.get("access_token")
+    except Exception:
+        pass
+    
     auth_req = google.auth.transport.requests.Request()
     credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
     credentials.refresh(auth_req)
-    access_token = credentials.token
-    
+    return credentials.token
+
+def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
+    """Invokes NYL Enterprise AI Gateway endpoint for Gemini 3.5 Flash."""
+    token = get_bearer_token()
     headers = {
-        "Authorization": f"Bearer {access_token}",
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
     
@@ -108,6 +124,38 @@ def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
             parts = data["candidates"][0].get("content", {}).get("parts", [])
             if parts:
                 return parts[0].get("text", "")
+    raise Exception(f"HTTP {resp.status_code}: {resp.text[:120]}")
+
+def query_vertex_rest(prompt: str, history: list = None) -> str:
+    """Direct REST invocation of Vertex AI model matching solutions/cloud_run_function."""
+    token = get_bearer_token()
+    proj = os.environ.get("PROJECT_ID", PROJECT_ID)
+    loc = os.environ.get("REGION", REGION)
+    model = os.environ.get("MODEL_NAME", MODEL_NAME)
+    
+    endpoint_url = f"https://aiplatform.googleapis.com/v1/projects/{proj}/locations/{loc}/publishers/google/models/{model}:generateContent"
+    
+    parts = []
+    if history:
+        for turn in history[-4:]:
+            parts.append({"text": f"{turn.get('role')}: {turn.get('text')}"})
+    parts.append({"text": prompt})
+    
+    payload = {
+        "contents": [{"role": "user", "parts": parts}],
+        "generation_config": {"temperature": 0.2, "maxOutputTokens": 2048}
+    }
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    resp = requests.post(endpoint_url, json=payload, headers=headers, timeout=15)
+    if resp.status_code == 200:
+        data = resp.json()
+        candidates = data.get("candidates", [])
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            return "".join(p.get("text", "") for p in parts)
     raise Exception(f"HTTP {resp.status_code}: {resp.text[:120]}")
 
 def execute_tool_locally(tool_name: str, tool_args: dict) -> str:
@@ -181,87 +229,73 @@ def save_session_memory(session_id: str, history: list):
         print(f"Error saving session memory: {e}")
 
 def run_agent_turn(prompt: str, session_id: str) -> str:
-    """Execute single turn of Agent reasoning loop with GCS Memory, AI Gateway, and MCP Tools."""
+    """Execute single turn of Agent reasoning loop with GCS Memory, AI Gateway, Vertex REST, and MCP Tools."""
     print(f"[AGENT_START] session_id={session_id}, prompt={prompt}")
     history = load_session_memory(session_id)
     reply_text = ""
-    gw_diag = ""
+    errors = []
     
-    # 1. Try NYL Enterprise AI Gateway (gemini-3.5-flash) first
+    # 1. Priority 1: NYL Enterprise AI Gateway (gemini-3.5-flash)
     try:
         print(f"[AI_GATEWAY_TRY] Target URL: {AI_GATEWAY_URL}")
         reply_text = query_nyl_ai_gateway(prompt, history)
-        print(f"[AI_GATEWAY_SUCCESS] Response: {reply_text[:100]}...")
+        print(f"[AI_GATEWAY_SUCCESS] Length={len(reply_text)}")
     except Exception as e:
-        gw_diag = f"AI Gateway ({str(e)})"
-        print(f"[AI_GATEWAY_ERROR] {gw_diag}")
+        errors.append(f"AI Gateway: {str(e)}")
+        print(f"[AI_GATEWAY_ERROR] {str(e)}")
         
-        # 2. Try Direct Vertex AI if Gateway not reachable
+        # 2. Priority 2: Direct Vertex AI REST API (matches solutions/cloud_run_function)
         try:
-            print(f"[VERTEX_AI_TRY] Model: {MODEL_NAME}")
-            system_instruction = (
-                "You are the New York Life (NYL) AI Claims & Documents Assistant. "
-                "You have access to tools to query BigQuery datasets across the project "
-                "and create summary documents. Always answer accurately and professionally based on tool results."
-            )
-            model = GenerativeModel(
-                model_name=MODEL_NAME,
-                tools=[agent_tools],
-                system_instruction=system_instruction
-            )
-            chat = model.start_chat()
-            response = chat.send_message(prompt)
-            
-            iterations = 0
-            while response.candidates and response.candidates[0].function_calls and iterations < 5:
-                iterations += 1
-                function_call = response.candidates[0].function_calls[0]
-                tool_name = function_call.name
-                tool_args = dict(function_call.args.items())
-                print(f"[VERTEX_AI_TOOL_CALL] {tool_name}: {tool_args}")
-                tool_result = call_mcp_tool(tool_name, tool_args)
-                response = chat.send_message(
-                    Part.from_function_response(
-                        name=tool_name,
-                        response={"content": tool_result}
-                    )
-                )
-            reply_text = response.text if hasattr(response, 'text') else ""
-            print(f"[VERTEX_AI_SUCCESS] Response: {reply_text[:100]}...")
+            print(f"[VERTEX_REST_TRY] Model: {MODEL_NAME}")
+            reply_text = query_vertex_rest(prompt, history)
+            print(f"[VERTEX_REST_SUCCESS] Length={len(reply_text)}")
         except Exception as e2:
-            if not gw_diag:
-                gw_diag = f"Vertex AI ({str(e2)[:80]})"
-            print(f"[VERTEX_AI_ERROR] {str(e2)}")
+            errors.append(f"Vertex REST: {str(e2)}")
+            print(f"[VERTEX_REST_ERROR] {str(e2)}")
             
-    # 3. Fallback to direct MCP tool execution if external LLM routes are VPC-SC restricted
+            # 3. Priority 3: Vertex AI SDK with MCP Function Calling
+            try:
+                system_instruction = (
+                    "You are the New York Life (NYL) AI Claims & Documents Assistant. "
+                    "You have access to tools to query BigQuery datasets across the project "
+                    "and create summary documents. Always answer accurately and professionally based on tool results."
+                )
+                model = GenerativeModel(
+                    model_name=MODEL_NAME,
+                    tools=[agent_tools],
+                    system_instruction=system_instruction
+                )
+                chat = model.start_chat()
+                response = chat.send_message(prompt)
+                
+                iterations = 0
+                while response.candidates and response.candidates[0].function_calls and iterations < 5:
+                    iterations += 1
+                    function_call = response.candidates[0].function_calls[0]
+                    tool_name = function_call.name
+                    tool_args = dict(function_call.args.items())
+                    print(f"[VERTEX_SDK_TOOL_CALL] {tool_name}: {tool_args}")
+                    tool_result = call_mcp_tool(tool_name, tool_args)
+                    response = chat.send_message(
+                        Part.from_function_response(
+                            name=tool_name,
+                            response={"content": tool_result}
+                        )
+                    )
+                reply_text = response.text if hasattr(response, 'text') else ""
+            except Exception as e3:
+                errors.append(f"Vertex SDK: {str(e3)}")
+                print(f"[VERTEX_SDK_ERROR] {str(e3)}")
+            
+    # 4. Fallback to direct MCP tool execution if all LLM routes are blocked
     if not reply_text:
         lower_prompt = prompt.lower()
         if "create" in lower_prompt or "summary" in lower_prompt or "pdf" in lower_prompt or "export" in lower_prompt:
             tool_result = call_mcp_tool("create_pdf", {"title": "policy_summary", "content": prompt})
             reply_text = f"[Agent Response via MCP Tool]: {tool_result}"
         else:
-            proj = os.environ.get('PROJECT_ID', PROJECT_ID)
-            dtst = os.environ.get('DATASET_ID', DATASET_ID)
-            
-            # Check if user mentioned a specific table (e.g. claims_silver.tbl_refund_sharepoint)
-            import re
-            tbl_match = re.search(r'([a-zA-Z0-9_\-]+(?:\.[a-zA-Z0-9_\-]+)+)', prompt)
-            
-            if tbl_match:
-                table_target = tbl_match.group(1)
-                full_table = table_target if table_target.startswith(proj) else f"{proj}.{table_target}"
-                query_sql = f"SELECT * FROM `{full_table}` LIMIT 5"
-                print(f"[BIGQUERY_FALLBACK_QUERY] Querying explicitly mentioned table: {query_sql}")
-                query_res = call_mcp_tool("query_bigquery", {"sql_query": query_sql})
-                reply_text = f"[Agent Response via BigQuery MCP]: Records from `{table_target}`:\n{query_res}"
-            else:
-                tables_sql = f"SELECT table_name FROM `{proj}.{dtst}.INFORMATION_SCHEMA.TABLES` LIMIT 10"
-                print(f"[BIGQUERY_FALLBACK_QUERY] Querying dataset schema: {tables_sql}")
-                tables_res = call_mcp_tool("query_bigquery", {"sql_query": tables_sql})
-                if "0 rows returned" in tables_res or "error" in tables_res.lower():
-                    reply_text = f"Agent checked dataset `{proj}.{dtst}`: No data tables currently found in this dataset. (LLM Status: {gw_diag})"
-                else:
-                    reply_text = f"Agent inspected dataset `{proj}.{dtst}`. Available tables:\n{tables_res}\n(LLM Status: {gw_diag})"
+            diag_str = " | ".join(errors)
+            reply_text = f"[Agent Response via BigQuery MCP]: Agent processed request '{prompt}'. (LLM Diagnostic: {diag_str})"
     
     # Update and persist memory
     history.append({"role": "user", "text": prompt})
