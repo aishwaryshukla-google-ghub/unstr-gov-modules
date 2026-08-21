@@ -139,6 +139,18 @@ resource "google_project_iam_member" "artifact_writer" {
   member  = "serviceAccount:${var.service_account_email}"
 }
 
+resource "google_project_iam_member" "bigquery_job_user" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${var.service_account_email}"
+}
+
+resource "google_project_iam_member" "bigquery_data_viewer" {
+  project = var.project_id
+  role    = "roles/bigquery.dataViewer"
+  member  = "serviceAccount:${var.service_account_email}"
+}
+
 
 
 
