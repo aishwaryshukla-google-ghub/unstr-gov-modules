@@ -68,3 +68,21 @@ variable "vpc_connector_egress_settings" {
   type        = string
   default     = "ALL_TRAFFIC"
 }
+
+variable "subnetwork" {
+  description = "The subnetwork name or URI for Direct VPC Egress (e.g. projects/nyl-pr-infra-nw-dev-01/regions/us-east4/subnetworks/vpc-g-aid-edm-dev-platform-use4)"
+  type        = string
+  default     = null
+}
+
+variable "vpc_network" {
+  description = "Optional VPC network name or URI for Direct VPC Egress (e.g. projects/nyl-pr-infra-nw-dev-01/global/networks/vpc-g-aid-edm-dev)"
+  type        = string
+  default     = null
+}
+
+variable "network_tags" {
+  description = "Optional network tags for Direct VPC Egress"
+  type        = list(string)
+  default     = []
+}

@@ -116,8 +116,21 @@ resource "google_cloudfunctions2_function" "nyl_agent_function" {
     timeout_seconds                = 120
     ingress_settings               = var.ingress_settings
     service_account_email          = var.service_account_email
-    vpc_connector                  = var.vpc_connector
-    vpc_connector_egress_settings  = var.vpc_connector != null ? var.vpc_connector_egress_settings : null
+    
+    # Legacy VPC Access Connector
+    vpc_connector                  = var.subnetwork == null ? var.vpc_connector : null
+    vpc_connector_egress_settings  = var.subnetwork == null && var.vpc_connector != null ? var.vpc_connector_egress_settings : null
+
+    # Direct VPC Egress (Matching NYL networking standards)
+    dynamic "direct_vpc_network_interface" {
+      for_each = var.subnetwork != null || var.vpc_network != null ? [1] : []
+      content {
+        network    = var.vpc_network
+        subnetwork = var.subnetwork
+        tags       = var.network_tags
+      }
+    }
+
     environment_variables = {
       PROJECT_ID     = var.project_id
       REGION         = var.region
