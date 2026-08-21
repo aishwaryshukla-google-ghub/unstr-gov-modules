@@ -99,7 +99,7 @@ def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
     contents.append({"role": "user", "parts": [{"text": prompt}]})
     
     payload = {"contents": contents}
-    resp = requests.post(AI_GATEWAY_URL, json=payload, headers=headers, timeout=30)
+    resp = requests.post(AI_GATEWAY_URL, json=payload, headers=headers, timeout=10)
     if resp.status_code == 200:
         data = resp.json()
         if "content" in data and isinstance(data["content"], list) and len(data["content"]) > 0:
@@ -108,7 +108,7 @@ def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
             parts = data["candidates"][0].get("content", {}).get("parts", [])
             if parts:
                 return parts[0].get("text", "")
-    raise Exception(f"AI Gateway returned HTTP {resp.status_code}: {resp.text}")
+    raise Exception(f"HTTP {resp.status_code}: {resp.text[:120]}")
 
 def execute_tool_locally(tool_name: str, tool_args: dict) -> str:
     """Executes tool logic directly if HTTP MCP server is blocked by VPC ingress constraints."""
@@ -135,7 +135,7 @@ def execute_tool_locally(tool_name: str, tool_args: dict) -> str:
             results = query_job.result()
             output = [str(dict(row.items())) for i, row in enumerate(results) if i < 10]
             if not output:
-                return "Query executed with 0 rows returned."
+                return "0 rows returned"
             return "\n".join(output)
         except Exception as e:
             return f"Query error: {str(e)}"
@@ -182,15 +182,23 @@ def save_session_memory(session_id: str, history: list):
 
 def run_agent_turn(prompt: str, session_id: str) -> str:
     """Execute single turn of Agent reasoning loop with GCS Memory, AI Gateway, and MCP Tools."""
+    print(f"[AGENT_START] session_id={session_id}, prompt={prompt}")
     history = load_session_memory(session_id)
     reply_text = ""
+    gw_diag = ""
     
     # 1. Try NYL Enterprise AI Gateway (gemini-3.5-flash) first
     try:
+        print(f"[AI_GATEWAY_TRY] Target URL: {AI_GATEWAY_URL}")
         reply_text = query_nyl_ai_gateway(prompt, history)
-    except Exception:
+        print(f"[AI_GATEWAY_SUCCESS] Response: {reply_text[:100]}...")
+    except Exception as e:
+        gw_diag = f"AI Gateway ({str(e)})"
+        print(f"[AI_GATEWAY_ERROR] {gw_diag}")
+        
         # 2. Try Direct Vertex AI if Gateway not reachable
         try:
+            print(f"[VERTEX_AI_TRY] Model: {MODEL_NAME}")
             system_instruction = (
                 "You are the New York Life (NYL) AI Claims & Documents Assistant. "
                 "You have access to tools to query BigQuery datasets across the project "
@@ -210,6 +218,7 @@ def run_agent_turn(prompt: str, session_id: str) -> str:
                 function_call = response.candidates[0].function_calls[0]
                 tool_name = function_call.name
                 tool_args = dict(function_call.args.items())
+                print(f"[VERTEX_AI_TOOL_CALL] {tool_name}: {tool_args}")
                 tool_result = call_mcp_tool(tool_name, tool_args)
                 response = chat.send_message(
                     Part.from_function_response(
@@ -218,10 +227,13 @@ def run_agent_turn(prompt: str, session_id: str) -> str:
                     )
                 )
             reply_text = response.text if hasattr(response, 'text') else ""
-        except Exception:
-            pass
+            print(f"[VERTEX_AI_SUCCESS] Response: {reply_text[:100]}...")
+        except Exception as e2:
+            if not gw_diag:
+                gw_diag = f"Vertex AI ({str(e2)[:80]})"
+            print(f"[VERTEX_AI_ERROR] {str(e2)}")
             
-    # 3. Fallback to direct MCP tool execution if both external LLM routes are VPC-SC restricted
+    # 3. Fallback to direct MCP tool execution if external LLM routes are VPC-SC restricted
     if not reply_text:
         lower_prompt = prompt.lower()
         if "create" in lower_prompt or "summary" in lower_prompt or "pdf" in lower_prompt or "export" in lower_prompt:
@@ -230,9 +242,26 @@ def run_agent_turn(prompt: str, session_id: str) -> str:
         else:
             proj = os.environ.get('PROJECT_ID', PROJECT_ID)
             dtst = os.environ.get('DATASET_ID', DATASET_ID)
-            sample_sql = f"SELECT * FROM `{proj}.{dtst}.INFORMATION_SCHEMA.TABLES` LIMIT 5"
-            tool_result = call_mcp_tool("query_bigquery", {"sql_query": sample_sql})
-            reply_text = f"[Agent Response via BigQuery MCP]: {tool_result}"
+            
+            # Check if user mentioned a specific table (e.g. claims_silver.tbl_refund_sharepoint)
+            import re
+            tbl_match = re.search(r'([a-zA-Z0-9_\-]+(?:\.[a-zA-Z0-9_\-]+)+)', prompt)
+            
+            if tbl_match:
+                table_target = tbl_match.group(1)
+                full_table = table_target if table_target.startswith(proj) else f"{proj}.{table_target}"
+                query_sql = f"SELECT * FROM `{full_table}` LIMIT 5"
+                print(f"[BIGQUERY_FALLBACK_QUERY] Querying explicitly mentioned table: {query_sql}")
+                query_res = call_mcp_tool("query_bigquery", {"sql_query": query_sql})
+                reply_text = f"[Agent Response via BigQuery MCP]: Records from `{table_target}`:\n{query_res}"
+            else:
+                tables_sql = f"SELECT table_name FROM `{proj}.{dtst}.INFORMATION_SCHEMA.TABLES` LIMIT 10"
+                print(f"[BIGQUERY_FALLBACK_QUERY] Querying dataset schema: {tables_sql}")
+                tables_res = call_mcp_tool("query_bigquery", {"sql_query": tables_sql})
+                if "0 rows returned" in tables_res or "error" in tables_res.lower():
+                    reply_text = f"Agent checked dataset `{proj}.{dtst}`: No data tables currently found in this dataset. (LLM Status: {gw_diag})"
+                else:
+                    reply_text = f"Agent inspected dataset `{proj}.{dtst}`. Available tables:\n{tables_res}\n(LLM Status: {gw_diag})"
     
     # Update and persist memory
     history.append({"role": "user", "text": prompt})
