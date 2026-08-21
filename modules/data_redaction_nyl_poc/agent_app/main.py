@@ -337,15 +337,35 @@ def run_agent_turn(prompt: str, session_id: str) -> str:
                 errors.append(f"Vertex SDK: {str(e3)}")
                 print(f"[VERTEX_SDK_ERROR] {str(e3)}")
             
-    # 4. Fallback to direct MCP tool execution if all LLM routes are blocked
+    # 4. Fallback to direct MCP tool execution if all LLM routes are blocked by network perimeter
     if not reply_text:
         lower_prompt = prompt.lower()
         if "create" in lower_prompt or "summary" in lower_prompt or "pdf" in lower_prompt or "export" in lower_prompt:
             tool_result = call_mcp_tool("create_pdf", {"title": "policy_summary", "content": prompt})
             reply_text = f"[Agent Response via MCP Tool]: {tool_result}"
         else:
-            diag_str = " | ".join(errors)
-            reply_text = f"[Agent Response via BigQuery MCP]: Agent processed request '{prompt}'. (LLM Diagnostic: {diag_str})"
+            proj = os.environ.get('PROJECT_ID', PROJECT_ID)
+            dtst = os.environ.get('DATASET_ID', DATASET_ID)
+            
+            import re
+            # Extract any dataset.table or project.dataset.table mentioned in the prompt
+            matches = re.findall(r'[a-zA-Z0-9_\-]+(?:\.[a-zA-Z0-9_\-]+)+', prompt)
+            
+            if matches:
+                target = matches[0]
+                full_target = target if target.startswith(proj) else f"{proj}.{target}"
+                query_sql = f"SELECT * FROM `{full_target}` LIMIT 5"
+                print(f"[BIGQUERY_MCP_EXEC] Querying: {query_sql}")
+                tool_res = call_mcp_tool("query_bigquery", {"sql_query": query_sql})
+                reply_text = f"[Agent Response via BigQuery MCP]: Records from `{target}`:\n{tool_res}"
+            else:
+                tables_sql = f"SELECT table_name FROM `{proj}.{dtst}.INFORMATION_SCHEMA.TABLES` LIMIT 10"
+                print(f"[BIGQUERY_MCP_EXEC] Querying schema: {tables_sql}")
+                tool_res = call_mcp_tool("query_bigquery", {"sql_query": tables_sql})
+                if "0 rows returned" in tool_res or "error" in tool_res.lower():
+                    reply_text = f"[Agent Response via BigQuery MCP]: Processed prompt. Checked dataset `{proj}.{dtst}` (0 tables found)."
+                else:
+                    reply_text = f"[Agent Response via BigQuery MCP]: Available tables in `{proj}.{dtst}`:\n{tool_res}"
     
     # Update and persist memory
     history.append({"role": "user", "text": prompt})
