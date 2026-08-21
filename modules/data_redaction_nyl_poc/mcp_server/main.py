@@ -7,35 +7,6 @@ from google.cloud import storage
 bq_client = bigquery.Client()
 storage_client = storage.Client()
 
-def search_redacted_documents(keyword: str, limit: int = 5) -> str:
-    """Search through redacted unstructured documents in BigQuery."""
-    project_id = os.environ.get('PROJECT_ID', '')
-    dataset_id = os.environ.get('DATASET_ID', '')
-    
-    query = f"""
-        SELECT *
-        FROM `{project_id}.{dataset_id}.redacted_documents_view`
-        WHERE LOWER(redacted_text) LIKE @keyword
-        LIMIT @limit
-    """
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("keyword", "STRING", f"%{keyword.lower()}%"),
-            bigquery.ScalarQueryParameter("limit", "INTEGER", int(limit)),
-        ]
-    )
-    try:
-        query_job = bq_client.query(query, job_config=job_config)
-        results = query_job.result()
-        output = []
-        for row in results:
-            output.append(str(dict(row.items())))
-        if not output:
-            return f"No redacted documents found matching '{keyword}'."
-        return "\n---\n".join(output)
-    except Exception as e:
-        return f"BigQuery search error: {str(e)}"
-
 def query_bigquery(sql_query: str) -> str:
     """Execute a read-only SQL query against BigQuery datasets."""
     try:
@@ -68,7 +39,6 @@ def create_pdf(title: str, content: str) -> str:
     return f"Simulated artifact created for '{title}'."
 
 TOOLS = {
-    "search_redacted_documents": search_redacted_documents,
     "query_bigquery": query_bigquery,
     "create_pdf": create_pdf
 }

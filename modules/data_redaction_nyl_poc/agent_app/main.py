@@ -19,8 +19,8 @@ REGION = os.environ.get("REGION", "us-east4")
 DATASET_ID = os.environ.get("DATASET_ID", "bq_unstr_dtst_v2")
 MEMORY_BUCKET = os.environ.get("MEMORY_BUCKET", "")
 MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL", "")
-MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-2.5-flash")
-AI_GATEWAY_URL = os.environ.get("AI_GATEWAY_URL", "https://test.aigw.newyorklife.com/eis-llm-gemini/gemini-2.5-flash:generateContent")
+MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-3.5-flash")
+AI_GATEWAY_URL = os.environ.get("AI_GATEWAY_URL", "https://test.aigw.newyorklife.com/eis-llm-gemini/gemini-3.5-flash:generateContent")
 
 # Initialize Vertex AI, BigQuery & Storage Client
 if PROJECT_ID:
@@ -31,29 +31,10 @@ if PROJECT_ID:
 storage_client = storage.Client()
 bq_client = bigquery.Client()
 
-# Tool Declarations for Gemini
-search_docs_func = FunctionDeclaration(
-    name="search_redacted_documents",
-    description="Search through redacted unstructured documents in BigQuery to find policy and claims details.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "keyword": {
-                "type": "string",
-                "description": "Keyword to search for in redacted text"
-            },
-            "limit": {
-                "type": "integer",
-                "description": "Maximum number of matching documents to return"
-            }
-        },
-        "required": ["keyword"]
-    }
-)
-
+# Tool Declarations for Gemini (2 General Enterprise MCP Tools)
 query_bq_func = FunctionDeclaration(
     name="query_bigquery",
-    description="Execute a read-only SQL query against BigQuery datasets in the project.",
+    description="Execute a read-only SQL query against BigQuery datasets in the project to search or inspect structured and unstructured data.",
     parameters={
         "type": "object",
         "properties": {
@@ -68,7 +49,7 @@ query_bq_func = FunctionDeclaration(
 
 create_pdf_func = FunctionDeclaration(
     name="create_pdf",
-    description="Create a summary report or PDF document and save it to cloud storage.",
+    description="Create a summary report or document and save it as an artifact in cloud storage.",
     parameters={
         "type": "object",
         "properties": {
@@ -86,7 +67,7 @@ create_pdf_func = FunctionDeclaration(
 )
 
 agent_tools = Tool(
-    function_declarations=[search_docs_func, query_bq_func, create_pdf_func]
+    function_declarations=[query_bq_func, create_pdf_func]
 )
 
 def get_auth_headers(target_url):
@@ -99,7 +80,7 @@ def get_auth_headers(target_url):
         return {"Content-Type": "application/json"}
 
 def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
-    """Invokes NYL Enterprise AI Gateway endpoint for Gemini 2.5 Flash."""
+    """Invokes NYL Enterprise AI Gateway endpoint for Gemini 3.5 Flash."""
     auth_req = google.auth.transport.requests.Request()
     credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
     credentials.refresh(auth_req)
@@ -131,8 +112,6 @@ def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
 
 def execute_tool_locally(tool_name: str, tool_args: dict) -> str:
     """Executes tool logic directly if HTTP MCP server is blocked by VPC ingress constraints."""
-    proj = os.environ.get('PROJECT_ID', PROJECT_ID)
-    dtst = os.environ.get('DATASET_ID', DATASET_ID)
     bucket_name = os.environ.get('MEMORY_BUCKET', MEMORY_BUCKET)
     
     if tool_name == "create_pdf":
@@ -149,31 +128,6 @@ def execute_tool_locally(tool_name: str, tool_args: dict) -> str:
                 return f"Document '{title}' generated. Storage note: {str(e)}"
         return f"Document '{title}' created successfully."
         
-    elif tool_name == "search_redacted_documents":
-        keyword = tool_args.get("keyword", "")
-        limit = tool_args.get("limit", 5)
-        query = f"""
-            SELECT *
-            FROM `{proj}.{dtst}.redacted_documents_view`
-            WHERE LOWER(redacted_text) LIKE @keyword
-            LIMIT @limit
-        """
-        try:
-            job_config = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("keyword", "STRING", f"%{keyword.lower()}%"),
-                    bigquery.ScalarQueryParameter("limit", "INTEGER", int(limit)),
-                ]
-            )
-            query_job = bq_client.query(query, job_config=job_config)
-            results = query_job.result()
-            output = [str(dict(row.items())) for row in results]
-            if not output:
-                return f"No redacted documents found matching '{keyword}'."
-            return "\n---\n".join(output)
-        except Exception as e:
-            return f"BigQuery search note: {str(e)}"
-            
     elif tool_name == "query_bigquery":
         sql_query = tool_args.get("sql_query", "")
         try:
@@ -231,7 +185,7 @@ def run_agent_turn(prompt: str, session_id: str) -> str:
     history = load_session_memory(session_id)
     reply_text = ""
     
-    # 1. Try NYL Enterprise AI Gateway (gemini-2.5-flash) first
+    # 1. Try NYL Enterprise AI Gateway (gemini-3.5-flash) first
     try:
         reply_text = query_nyl_ai_gateway(prompt, history)
     except Exception:
@@ -239,7 +193,7 @@ def run_agent_turn(prompt: str, session_id: str) -> str:
         try:
             system_instruction = (
                 "You are the New York Life (NYL) AI Claims & Documents Assistant. "
-                "You have access to tools to search redacted unstructured claims documents in BigQuery "
+                "You have access to tools to query BigQuery datasets across the project "
                 "and create summary documents. Always answer accurately and professionally based on tool results."
             )
             model = GenerativeModel(
@@ -274,11 +228,10 @@ def run_agent_turn(prompt: str, session_id: str) -> str:
             tool_result = call_mcp_tool("create_pdf", {"title": "policy_summary", "content": prompt})
             reply_text = f"[Agent Response via MCP Tool]: {tool_result}"
         else:
-            terms = [w.strip("?,.!") for w in prompt.split() if len(w) > 3 and w.lower() not in ["what", "about", "going", "know", "have", "with", "from", "this", "that", "these", "those", "does", "where", "when", "which", "could", "would"]]
-            search_keyword = terms[0] if terms else "claim"
-            tool_result = call_mcp_tool("search_redacted_documents", {"keyword": search_keyword, "limit": 5})
-            if "No redacted documents found" in tool_result or "error" in tool_result.lower():
-                tool_result = call_mcp_tool("search_redacted_documents", {"keyword": "claim", "limit": 3})
+            proj = os.environ.get('PROJECT_ID', PROJECT_ID)
+            dtst = os.environ.get('DATASET_ID', DATASET_ID)
+            sample_sql = f"SELECT * FROM `{proj}.{dtst}.INFORMATION_SCHEMA.TABLES` LIMIT 5"
+            tool_result = call_mcp_tool("query_bigquery", {"sql_query": sample_sql})
             reply_text = f"[Agent Response via BigQuery MCP]: {tool_result}"
     
     # Update and persist memory

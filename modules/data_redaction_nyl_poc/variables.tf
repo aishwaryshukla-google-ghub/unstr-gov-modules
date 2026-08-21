@@ -48,11 +48,11 @@ variable "ingress_settings" {
 variable "model_name" {
   description = "Gemini model name"
   type        = string
-  default     = "gemini-2.5-flash"
+  default     = "gemini-3.5-flash"
 }
 
 variable "ai_gateway_url" {
   description = "NYL Enterprise AI Gateway endpoint for Gemini"
   type        = string
-  default     = "https://test.aigw.newyorklife.com/eis-llm-gemini/gemini-2.5-flash:generateContent"
+  default     = "https://test.aigw.newyorklife.com/eis-llm-gemini/gemini-3.5-flash:generateContent"
 }
