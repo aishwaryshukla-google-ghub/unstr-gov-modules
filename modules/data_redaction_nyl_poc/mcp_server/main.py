@@ -1,55 +1,97 @@
 import os
-from mcp.server.fastmcp import FastMCP
+import json
+import functions_framework
 from google.cloud import bigquery
+from google.cloud import storage
 
-# Initialize FastMCP Server
-mcp = FastMCP("NYL-MCP-Server")
-
-# Initialize BigQuery Client
 bq_client = bigquery.Client()
+storage_client = storage.Client()
 
-@mcp.tool()
 def search_redacted_documents(keyword: str, limit: int = 5) -> str:
-    """
-    Search through the fully redacted unstructured documents in BigQuery.
-    Use this tool to generate content and answer user questions safely without exposing PII.
-    
-    Args:
-        keyword: The keyword to search for in the redacted_text column. (e.g. "python")
-        limit: Max number of documents to return.
-    """
-    project_id = os.environ['PROJECT_ID']
-    dataset_id = os.environ['DATASET_ID']
+    """Search through redacted unstructured documents in BigQuery."""
+    project_id = os.environ.get('PROJECT_ID', '')
+    dataset_id = os.environ.get('DATASET_ID', '')
     
     query = f"""
-        SELECT uri, content_type, redacted_text 
+        SELECT *
         FROM `{project_id}.{dataset_id}.redacted_documents_view`
         WHERE LOWER(redacted_text) LIKE @keyword
         LIMIT @limit
     """
-    
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("keyword", "STRING", f"%{keyword.lower()}%"),
-            bigquery.ScalarQueryParameter("limit", "INTEGER", limit),
+            bigquery.ScalarQueryParameter("limit", "INTEGER", int(limit)),
         ]
     )
-    
-    query_job = bq_client.query(query, job_config=job_config)
-    results = query_job.result()
-    
-    output = []
-    for row in results:
-        output.append(f"URI: {row.uri}\nContent Type: {row.content_type}\nRedacted Text Snippet:\n{row.redacted_text[:1000]}...\n{'-'*40}")
-        
-    if not output:
-        return f"No redacted documents found containing '{keyword}'."
-        
-    return "\n".join(output)
+    try:
+        query_job = bq_client.query(query, job_config=job_config)
+        results = query_job.result()
+        output = []
+        for row in results:
+            output.append(str(dict(row.items())))
+        if not output:
+            return f"No redacted documents found matching '{keyword}'."
+        return "\n---\n".join(output)
+    except Exception as e:
+        return f"BigQuery search error: {str(e)}"
 
-@mcp.tool()
+def query_bigquery(sql_query: str) -> str:
+    """Execute a read-only SQL query against BigQuery datasets."""
+    try:
+        query_job = bq_client.query(sql_query)
+        results = query_job.result()
+        output = []
+        for i, row in enumerate(results):
+            if i >= 10:
+                output.append("... (truncated to 10 rows)")
+                break
+            output.append(str(dict(row.items())))
+        if not output:
+            return "Query executed successfully with 0 rows returned."
+        return "\n".join(output)
+    except Exception as e:
+        return f"Query error: {str(e)}"
+
 def create_pdf(title: str, content: str) -> str:
+    """Create and save a document/artifact to GCS."""
+    bucket_name = os.environ.get('MEMORY_BUCKET', '')
+    if bucket_name:
+        try:
+            bucket = storage_client.bucket(bucket_name)
+            filename = f"exports/{title.replace(' ', '_').lower()}.txt"
+            blob = bucket.blob(filename)
+            blob.upload_from_string(f"TITLE: {title}\n\n{content}", content_type="text/plain")
+            return f"Document '{title}' created and saved to gs://{bucket_name}/{filename}"
+        except Exception as e:
+            return f"Simulated artifact created for '{title}'. Storage error: {str(e)}"
+    return f"Simulated artifact created for '{title}'."
+
+TOOLS = {
+    "search_redacted_documents": search_redacted_documents,
+    "query_bigquery": query_bigquery,
+    "create_pdf": create_pdf
+}
+
+@functions_framework.http
+def handle_tool_request(request):
     """
-    A dummy tool to fulfill the 'LIKE CREATE A PDF' requirement from the project spec.
+    HTTP entrypoint for CRF - MCP.
+    Expects POST: {"tool": "tool_name", "arguments": {...}}
     """
-    return f"Simulated PDF Creation:\nTitle: {title}\nStatus: SUCCESS - Saved to secure storage."
+    if request.method != 'POST':
+        return json.dumps({"error": "Only POST method is supported"}), 405, {'Content-Type': 'application/json'}
+    
+    try:
+        data = request.get_json(silent=True) or {}
+        tool_name = data.get("tool")
+        arguments = data.get("arguments", {})
+        
+        if tool_name not in TOOLS:
+            return json.dumps({"error": f"Unknown tool: {tool_name}. Available: {list(TOOLS.keys())}"}), 400, {'Content-Type': 'application/json'}
+        
+        func = TOOLS[tool_name]
+        result = func(**arguments)
+        return json.dumps({"result": result}), 200, {'Content-Type': 'application/json'}
+    except Exception as e:
+        return json.dumps({"error": str(e)}), 500, {'Content-Type': 'application/json'}

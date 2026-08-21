@@ -1,5 +1,5 @@
 output "cloud_run_service_url" {
-  description = "The URL of the deployed Cloud Run service"
+  description = "The URL of the deployed DLP redaction Cloud Run service"
   value       = google_cloudfunctions2_function.nyl_flask_app_cloud_function.service_config[0].uri
 }
 
@@ -17,3 +17,24 @@ output "dlp_deidentify_template_name" {
   description = "The DLP De-identify template name"
   value       = google_data_loss_prevention_deidentify_template.nyl_deidentify_template.name
 }
+
+output "mcp_server_url" {
+  description = "The URL of the deployed MCP Server function"
+  value       = google_cloudfunctions2_function.nyl_mcp_server.service_config[0].uri
+}
+
+output "agent_function_url" {
+  description = "The URL of the deployed Agent Orchestrator function"
+  value       = google_cloudfunctions2_function.nyl_agent_function.service_config[0].uri
+}
+
+output "agent_memory_bucket" {
+  description = "The GCS bucket used for Agent conversation memory and document exports"
+  value       = google_storage_bucket.agent_memory.name
+}
+
+output "agent_query_routine_id" {
+  description = "The BigQuery routine ID to query the Agent"
+  value       = google_bigquery_routine.agent_query_function.routine_id
+}
+
