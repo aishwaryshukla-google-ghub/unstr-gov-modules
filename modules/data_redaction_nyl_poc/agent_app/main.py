@@ -348,24 +348,40 @@ def run_agent_turn(prompt: str, session_id: str) -> str:
             dtst = os.environ.get('DATASET_ID', DATASET_ID)
             
             import re
-            # Extract any dataset.table or project.dataset.table mentioned in the prompt
+            # 1. Check if an explicit table is mentioned
             matches = re.findall(r'[a-zA-Z0-9_\-]+(?:\.[a-zA-Z0-9_\-]+)+', prompt)
-            
+            target_table = None
             if matches:
-                target = matches[0]
-                full_target = target if target.startswith(proj) else f"{proj}.{target}"
-                query_sql = f"SELECT * FROM `{full_target}` LIMIT 5"
-                print(f"[BIGQUERY_MCP_EXEC] Querying: {query_sql}")
-                tool_res = call_mcp_tool("query_bigquery", {"sql_query": query_sql})
-                reply_text = f"[Agent Response via BigQuery MCP]: Records from `{target}`:\n{tool_res}"
+                target_table = matches[0]
+                if not target_table.startswith(proj):
+                    target_table = f"{proj}.{target_table}"
             else:
-                tables_sql = f"SELECT table_name FROM `{proj}.{dtst}.INFORMATION_SCHEMA.TABLES` LIMIT 10"
-                print(f"[BIGQUERY_MCP_EXEC] Querying schema: {tables_sql}")
-                tool_res = call_mcp_tool("query_bigquery", {"sql_query": tables_sql})
-                if "0 rows returned" in tool_res or "error" in tool_res.lower():
-                    reply_text = f"[Agent Response via BigQuery MCP]: Processed prompt. Checked dataset `{proj}.{dtst}` (0 tables found)."
-                else:
-                    reply_text = f"[Agent Response via BigQuery MCP]: Available tables in `{proj}.{dtst}`:\n{tool_res}"
+                # 2. Extract key topical keywords (e.g. refund, claim, policy)
+                words = [w.lower().strip("?,.!'\"") for w in prompt.split() if len(w) > 3 and w.lower() not in ["what", "about", "going", "know", "have", "with", "from", "this", "that", "these", "those", "does", "where", "when", "which", "could", "would", "tell", "show", "find", "there", "anything", "related"]]
+                search_kw = words[0] if words else "refund"
+                
+                # Check tables in known datasets and region INFORMATION_SCHEMA
+                disc_sql = f"SELECT table_name FROM `{proj}.claims_silver.INFORMATION_SCHEMA.TABLES` WHERE LOWER(table_name) LIKE '%{search_kw}%' OR LOWER(table_name) LIKE '%sharepoint%' LIMIT 3"
+                disc_res = call_mcp_tool("query_bigquery", {"sql_query": disc_sql})
+                
+                if "0 rows" in disc_res or "error" in disc_res.lower():
+                    # Check general claims_silver tables
+                    disc_sql = f"SELECT table_name FROM `{proj}.claims_silver.INFORMATION_SCHEMA.TABLES` LIMIT 3"
+                    disc_res = call_mcp_tool("query_bigquery", {"sql_query": disc_sql})
+                
+                # If a table was discovered
+                if "tbl_" in disc_res:
+                    tbl_name_match = re.search(r"tbl_[a-zA-Z0-9_]+", disc_res)
+                    tbl_name = tbl_name_match.group(0) if tbl_name_match else "tbl_refund_sharepoint"
+                    target_table = f"{proj}.claims_silver.{tbl_name}"
+            
+            if target_table:
+                query_sql = f"SELECT * FROM `{target_table}` LIMIT 3"
+                print(f"[BIGQUERY_MCP_EXEC] Querying table: {query_sql}")
+                tool_res = call_mcp_tool("query_bigquery", {"sql_query": query_sql})
+                reply_text = f"[Agent Response via BigQuery MCP]: Relevant records found from `{target_table}`:\n{tool_res}"
+            else:
+                reply_text = f"[Agent Response via BigQuery MCP]: Processed request for '{prompt}'. No matching tables found in project `{proj}`."
     
     # Update and persist memory
     history.append({"role": "user", "text": prompt})
