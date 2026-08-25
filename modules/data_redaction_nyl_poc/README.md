@@ -16,3 +16,8 @@ module "data_redaction_nyl_poc" {
   dataset_id            = "test_dtst" # Uses client's existing dataset
 }
 ```
+
+## Architecture Data Flow
+
+![GCP Architectural Data Flow](./docs/gcp_architectural_data_flow.png)
+
