@@ -136,6 +136,42 @@ def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
             return "".join(p.get("text", "") for p in parts)
     return "No text candidates returned from AI Gateway."
 
+def query_model_proxy_service(prompt: str) -> str:
+    """Fallback: Invokes the deployed and authorized nyl-ws2-vertex-model-proxy service directly."""
+    proxy_urls = [
+        "https://us-east4-nyl-pr-dbx-data-dev-01.cloudfunctions.net/nyl-ws2-vertex-model-proxy",
+        "https://nyl-ws2-vertex-model-proxy-eyivtzleha-uk.a.run.app"
+    ]
+    token = get_bearer_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "calls": [[prompt, ""]]
+    }
+    ssl_ctx = get_ssl_context()
+    
+    for url in proxy_urls:
+        try:
+            print(f"[MODEL_PROXY_TRY] Target: {url}")
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers=headers,
+                method="POST"
+            )
+            with urllib.request.urlopen(req, context=ssl_ctx, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                replies = data.get("replies", [])
+                if replies and replies[0]:
+                    print(f"[MODEL_PROXY_SUCCESS] Received {len(str(replies[0]))} chars from proxy")
+                    return str(replies[0])
+        except Exception as e:
+            print(f"[MODEL_PROXY_ERROR] {url}: {e}")
+            
+    return ""
+
 def execute_tool_locally(tool_name: str, tool_args: dict) -> str:
     """Executes tool logic directly if HTTP MCP server is blocked by VPC ingress constraints."""
     bucket_name = os.environ.get('MEMORY_BUCKET', MEMORY_BUCKET)
@@ -207,7 +243,7 @@ def save_session_memory(session_id: str, history: list):
         print(f"Error saving session memory: {e}")
 
 def run_agent_turn(prompt: str, session_id: str) -> str:
-    """Execute single turn of Agent reasoning loop with GCS Memory, NYL AI Gateway, and MCP Tools."""
+    """Execute single turn of Agent reasoning loop with GCS Memory, NYL AI Gateway, Model Proxy, and MCP Tools."""
     print(f"[AGENT_START] session_id={session_id}, prompt={prompt}")
     history = load_session_memory(session_id)
     reply_text = ""
@@ -220,7 +256,13 @@ def run_agent_turn(prompt: str, session_id: str) -> str:
     except Exception as e:
         print(f"[AI_GATEWAY_ERROR] {str(e)}")
         
-    # 2. Fallback to direct MCP tool execution if gateway is temporarily unreachable
+        # 2. Secondary: Call nyl-ws2-vertex-model-proxy service directly
+        try:
+            reply_text = query_model_proxy_service(prompt)
+        except Exception as e2:
+            print(f"[MODEL_PROXY_ERROR] {str(e2)}")
+        
+    # 3. Fallback to direct MCP tool execution if both gateway & proxy are unreachable
     if not reply_text:
         lower_prompt = prompt.lower()
         if "create" in lower_prompt or "summary" in lower_prompt or "pdf" in lower_prompt or "export" in lower_prompt:
