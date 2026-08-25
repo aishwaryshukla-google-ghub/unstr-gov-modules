@@ -1,14 +1,9 @@
 import os
 import json
+import urllib.request
+import urllib.error
 import requests
 import functions_framework
-import vertexai
-from vertexai.generative_models import (
-    GenerativeModel,
-    Tool,
-    FunctionDeclaration,
-    Part
-)
 from google.cloud import storage, bigquery
 import google.auth
 import google.auth.transport.requests
@@ -22,53 +17,8 @@ MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL", "")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-3.5-flash")
 AI_GATEWAY_URL = os.environ.get("AI_GATEWAY_URL", "https://dev.aigw.newyorklife.com/eis-llm-gemini/gemini-3.5-flash:generateContent")
 
-# Initialize Vertex AI, BigQuery & Storage Client
-if PROJECT_ID:
-    try:
-        vertexai.init(project=PROJECT_ID, location=REGION)
-    except Exception:
-        pass
 storage_client = storage.Client()
 bq_client = bigquery.Client()
-
-# Tool Declarations for Gemini (2 General Enterprise MCP Tools)
-query_bq_func = FunctionDeclaration(
-    name="query_bigquery",
-    description="Execute a read-only SQL query against BigQuery datasets in the project to search or inspect structured and unstructured data.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "sql_query": {
-                "type": "string",
-                "description": "SQL query to execute"
-            }
-        },
-        "required": ["sql_query"]
-    }
-)
-
-create_pdf_func = FunctionDeclaration(
-    name="create_pdf",
-    description="Create a summary report or document and save it as an artifact in cloud storage.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "title": {
-                "type": "string",
-                "description": "Document title"
-            },
-            "content": {
-                "type": "string",
-                "description": "Content of the document/summary"
-            }
-        },
-        "required": ["title", "content"]
-    }
-)
-
-agent_tools = Tool(
-    function_declarations=[query_bq_func, create_pdf_func]
-)
 
 def get_auth_headers(target_url):
     """Generate GCP Identity Token header for authenticated Cloud Function invocation."""
@@ -105,7 +55,6 @@ def get_ssl_context():
 def get_bearer_token() -> str:
     """Fetch OAuth2 Bearer token from GCP metadata server or google.auth."""
     try:
-        import urllib.request
         req = urllib.request.Request(
             "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
             headers={"Metadata-Flavor": "Google"}
@@ -117,16 +66,16 @@ def get_bearer_token() -> str:
     except Exception:
         pass
     
-    auth_req = google.auth.transport.requests.Request()
-    credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-    credentials.refresh(auth_req)
-    return credentials.token
+    try:
+        auth_req = google.auth.transport.requests.Request()
+        credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        credentials.refresh(auth_req)
+        return credentials.token
+    except Exception:
+        return ""
 
 def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
     """Invokes NYL Enterprise AI Gateway endpoint for Gemini 3.5 Flash using urllib and custom SSL context."""
-    import urllib.request
-    import urllib.error
-    
     token = get_bearer_token()
     headers = {
         "Authorization": f"Bearer {token}",
@@ -148,99 +97,23 @@ def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
         }
     }
     
-    urls_to_try = [
-        AI_GATEWAY_URL,
-        "https://dev.aigw.newyorklife.com/eis-llm-gemini/gemini-3.5-flash:generateContent",
-        "https://test.aigw.newyorklife.com/eis-llm-gemini/gemini-3.5-flash:generateContent"
-    ]
-    seen = set()
-    unique_urls = [u for u in urls_to_try if not (u in seen or seen.add(u))]
-    
-    last_error = None
     ssl_ctx = get_ssl_context()
-    
-    for url in unique_urls:
-        try:
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers=headers,
-                method="POST"
-            )
-            with urllib.request.urlopen(req, context=ssl_ctx, timeout=15) as resp:
-                resp_data = json.loads(resp.read().decode("utf-8"))
-                if "content" in resp_data and isinstance(resp_data["content"], list) and len(resp_data["content"]) > 0:
-                    return resp_data["content"][0].get("text", "")
-                elif "candidates" in resp_data and len(resp_data["candidates"]) > 0:
-                    parts = resp_data["candidates"][0].get("content", {}).get("parts", [])
-                    if parts:
-                        return "".join(p.get("text", "") for p in parts)
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8")
-            last_error = f"{url} HTTP {e.code}: {err_body[:120]}"
-        except Exception as e:
-            last_error = f"{url} Error: {str(e)[:120]}"
-            
-    raise Exception(f"AI Gateway failed: {last_error}")
-
-def query_vertex_rest(prompt: str, history: list = None) -> str:
-    """
-    Direct REST invocation of Google Gemini on Vertex AI matching solutions/cloud_run_function/src/services/model_service.py.
-    """
-    import urllib.request
-    import urllib.error
-    
-    token = get_bearer_token()
-    proj = os.environ.get("PROJECT_ID", PROJECT_ID)
-    loc = os.environ.get("REGION", REGION)
-    model = os.environ.get("MODEL_NAME", MODEL_NAME)
-    
-    # Regional vs global endpoint hostname (solutions/cloud_run_function pattern)
-    host = "aiplatform.googleapis.com" if loc == "global" else f"{loc}-aiplatform.googleapis.com"
-    endpoint_url = f"https://{host}/v1/projects/{proj}/locations/{loc}/publishers/google/models/{model}:generateContent"
-    
-    gemini_parts = []
-    if history:
-        for turn in history[-4:]:
-            gemini_parts.append({"text": f"{turn.get('role', 'user')}: {turn.get('text', '')}"})
-    gemini_parts.append({"text": prompt})
-    
-    payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": gemini_parts
-            }
-        ],
-        "generation_config": {
-            "temperature": 0.2,
-            "maxOutputTokens": 4096
-        }
-    }
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    
     req = urllib.request.Request(
-        endpoint_url,
+        AI_GATEWAY_URL,
         data=json.dumps(payload).encode("utf-8"),
         headers=headers,
         method="POST"
     )
     
-    try:
-        ssl_ctx = get_ssl_context()
-        with urllib.request.urlopen(req, context=ssl_ctx, timeout=15) as resp:
-            resp_data = json.loads(resp.read().decode("utf-8"))
-            candidates = resp_data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
+    with urllib.request.urlopen(req, context=ssl_ctx, timeout=25) as resp:
+        resp_data = json.loads(resp.read().decode("utf-8"))
+        if "content" in resp_data and isinstance(resp_data["content"], list) and len(resp_data["content"]) > 0:
+            return resp_data["content"][0].get("text", "")
+        elif "candidates" in resp_data and len(resp_data["candidates"]) > 0:
+            parts = resp_data["candidates"][0].get("content", {}).get("parts", [])
+            if parts:
                 return "".join(p.get("text", "") for p in parts)
-            return "No text candidates generated."
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode("utf-8")
-        raise RuntimeError(f"Vertex HTTP {e.code}: {err_body[:160]}")
+        return "No text candidates returned from AI Gateway."
 
 def execute_tool_locally(tool_name: str, tool_args: dict) -> str:
     """Executes tool logic directly if HTTP MCP server is blocked by VPC ingress constraints."""
@@ -280,7 +153,7 @@ def call_mcp_tool(tool_name: str, tool_args: dict) -> str:
         try:
             headers = get_auth_headers(MCP_SERVER_URL)
             payload = {"tool": tool_name, "arguments": tool_args}
-            resp = requests.post(MCP_SERVER_URL, json=payload, headers=headers, timeout=10)
+            resp = requests.post(MCP_SERVER_URL, json=payload, headers=headers, timeout=15)
             if resp.status_code == 200:
                 return resp.json().get("result", "")
         except Exception:
@@ -313,65 +186,20 @@ def save_session_memory(session_id: str, history: list):
         print(f"Error saving session memory: {e}")
 
 def run_agent_turn(prompt: str, session_id: str) -> str:
-    """Execute single turn of Agent reasoning loop with GCS Memory, AI Gateway, Vertex REST, and MCP Tools."""
+    """Execute single turn of Agent reasoning loop with GCS Memory, NYL AI Gateway, and MCP Tools."""
     print(f"[AGENT_START] session_id={session_id}, prompt={prompt}")
     history = load_session_memory(session_id)
     reply_text = ""
-    errors = []
     
-    # 1. Priority 1: NYL Enterprise AI Gateway (gemini-3.5-flash)
+    # 1. Primary: NYL Enterprise AI Gateway (gemini-3.5-flash)
     try:
         print(f"[AI_GATEWAY_TRY] Target URL: {AI_GATEWAY_URL}")
         reply_text = query_nyl_ai_gateway(prompt, history)
         print(f"[AI_GATEWAY_SUCCESS] Length={len(reply_text)}")
     except Exception as e:
-        errors.append(f"AI Gateway: {str(e)}")
         print(f"[AI_GATEWAY_ERROR] {str(e)}")
         
-        # 2. Priority 2: Direct Vertex AI REST API (matches solutions/cloud_run_function)
-        try:
-            print(f"[VERTEX_REST_TRY] Model: {MODEL_NAME}")
-            reply_text = query_vertex_rest(prompt, history)
-            print(f"[VERTEX_REST_SUCCESS] Length={len(reply_text)}")
-        except Exception as e2:
-            errors.append(f"Vertex REST: {str(e2)}")
-            print(f"[VERTEX_REST_ERROR] {str(e2)}")
-            
-            # 3. Priority 3: Vertex AI SDK with MCP Function Calling
-            try:
-                system_instruction = (
-                    "You are the New York Life (NYL) AI Claims & Documents Assistant. "
-                    "You have access to tools to query BigQuery datasets across the project "
-                    "and create summary documents. Always answer accurately and professionally based on tool results."
-                )
-                model = GenerativeModel(
-                    model_name=MODEL_NAME,
-                    tools=[agent_tools],
-                    system_instruction=system_instruction
-                )
-                chat = model.start_chat()
-                response = chat.send_message(prompt)
-                
-                iterations = 0
-                while response.candidates and response.candidates[0].function_calls and iterations < 5:
-                    iterations += 1
-                    function_call = response.candidates[0].function_calls[0]
-                    tool_name = function_call.name
-                    tool_args = dict(function_call.args.items())
-                    print(f"[VERTEX_SDK_TOOL_CALL] {tool_name}: {tool_args}")
-                    tool_result = call_mcp_tool(tool_name, tool_args)
-                    response = chat.send_message(
-                        Part.from_function_response(
-                            name=tool_name,
-                            response={"content": tool_result}
-                        )
-                    )
-                reply_text = response.text if hasattr(response, 'text') else ""
-            except Exception as e3:
-                errors.append(f"Vertex SDK: {str(e3)}")
-                print(f"[VERTEX_SDK_ERROR] {str(e3)}")
-            
-    # 4. Fallback to direct MCP tool execution if all LLM routes are blocked by network perimeter
+    # 2. Fallback to direct MCP tool execution if gateway is temporarily unreachable
     if not reply_text:
         lower_prompt = prompt.lower()
         if "create" in lower_prompt or "summary" in lower_prompt or "pdf" in lower_prompt or "export" in lower_prompt:
