@@ -74,14 +74,23 @@ def get_bearer_token() -> str:
     except Exception:
         return ""
 
-def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
-    """Invokes NYL Enterprise AI Gateway endpoint for Gemini 3.5 Flash using urllib and custom SSL context."""
+def query_gemini_vertex(prompt: str, history: list = None) -> str:
+    """
+    Invokes Google Gemini generateContent matching solutions/cloud_run_function/src/services/model_service.py exactly.
+    """
     import ssl
     token = get_bearer_token()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
+    project = os.environ.get("PROJECT_ID", PROJECT_ID)
+    location = os.environ.get("VERTEX_LOCATION", "us-central1")
+    model_name = os.environ.get("MODEL_NAME", MODEL_NAME)
+    
+    # Check if AI Gateway is configured, otherwise use direct Vertex endpoint (solutions/cloud_run_function pattern)
+    endpoint_url = os.environ.get("AI_GATEWAY_URL")
+    if not endpoint_url or "test.aigw" in endpoint_url:
+        endpoint_url = (
+            f"https://aiplatform.googleapis.com/v1/"
+            f"projects/{project}/locations/{location}/publishers/google/models/{model_name}:generateContent"
+        )
     
     contents = []
     if history:
@@ -98,33 +107,47 @@ def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
         }
     }
     
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    
+    ssl_ctx = get_ssl_context()
     req = urllib.request.Request(
-        AI_GATEWAY_URL,
+        endpoint_url,
         data=json.dumps(payload).encode("utf-8"),
         headers=headers,
         method="POST"
     )
     
-    ssl_ctx = get_ssl_context()
+    print(f"[GEMINI_INVOKE] Endpoint: {endpoint_url}")
     try:
-        with urllib.request.urlopen(req, context=ssl_ctx, timeout=25) as resp:
+        with urllib.request.urlopen(req, context=ssl_ctx, timeout=30) as resp:
             resp_data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         err_body = e.read().decode("utf-8", errors="ignore")
-        print(f"[AI_GATEWAY_HTTP_ERROR] HTTP {e.code}: {err_body}")
-        raise RuntimeError(f"AI Gateway HTTP {e.code}: {err_body}")
+        print(f"[GEMINI_HTTP_ERROR] HTTP {e.code}: {err_body}")
+        # If AI Gateway fails with 403, fallback to direct Vertex endpoint
+        if endpoint_url != f"https://aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model_name}:generateContent":
+            direct_url = f"https://aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model_name}:generateContent"
+            print(f"[GEMINI_FALLBACK] Retrying via direct Vertex endpoint: {direct_url}")
+            req_direct = urllib.request.Request(
+                direct_url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers=headers,
+                method="POST"
+            )
+            with urllib.request.urlopen(req_direct, context=ssl_ctx, timeout=30) as resp:
+                resp_data = json.loads(resp.read().decode("utf-8"))
+        else:
+            raise RuntimeError(f"Vertex HTTP {e.code}: {err_body}")
     except urllib.error.URLError as e:
         if "CERTIFICATE_VERIFY_FAILED" in str(e) or "self-signed" in str(e):
-            print("[AI_GATEWAY_SSL_RETRY] Certificate verify failed on corporate proxy; retrying with unverified internal SSL context.")
+            print("[GEMINI_SSL_RETRY] Retrying with unverified internal SSL context.")
             unverified_ctx = ssl._create_unverified_context()
             unverified_ctx.check_hostname = False
-            try:
-                with urllib.request.urlopen(req, context=unverified_ctx, timeout=25) as resp:
-                    resp_data = json.loads(resp.read().decode("utf-8"))
-            except urllib.error.HTTPError as e2:
-                err_body = e2.read().decode("utf-8", errors="ignore")
-                print(f"[AI_GATEWAY_HTTP_ERROR] HTTP {e2.code}: {err_body}")
-                raise RuntimeError(f"AI Gateway HTTP {e2.code}: {err_body}")
+            with urllib.request.urlopen(req, context=unverified_ctx, timeout=30) as resp:
+                resp_data = json.loads(resp.read().decode("utf-8"))
         else:
             raise e
 
@@ -134,43 +157,7 @@ def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
         parts = resp_data["candidates"][0].get("content", {}).get("parts", [])
         if parts:
             return "".join(p.get("text", "") for p in parts)
-    return "No text candidates returned from AI Gateway."
-
-def query_model_proxy_service(prompt: str) -> str:
-    """Fallback: Invokes the deployed and authorized nyl-ws2-vertex-model-proxy service directly."""
-    proxy_urls = [
-        "https://us-east4-nyl-pr-dbx-data-dev-01.cloudfunctions.net/nyl-ws2-vertex-model-proxy",
-        "https://nyl-ws2-vertex-model-proxy-eyivtzleha-uk.a.run.app"
-    ]
-    token = get_bearer_token()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "calls": [[prompt, ""]]
-    }
-    ssl_ctx = get_ssl_context()
-    
-    for url in proxy_urls:
-        try:
-            print(f"[MODEL_PROXY_TRY] Target: {url}")
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers=headers,
-                method="POST"
-            )
-            with urllib.request.urlopen(req, context=ssl_ctx, timeout=30) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                replies = data.get("replies", [])
-                if replies and replies[0]:
-                    print(f"[MODEL_PROXY_SUCCESS] Received {len(str(replies[0]))} chars from proxy")
-                    return str(replies[0])
-        except Exception as e:
-            print(f"[MODEL_PROXY_ERROR] {url}: {e}")
-            
-    return ""
+    return "No text candidates returned from model."
 
 def execute_tool_locally(tool_name: str, tool_args: dict) -> str:
     """Executes tool logic directly if HTTP MCP server is blocked by VPC ingress constraints."""
@@ -243,26 +230,19 @@ def save_session_memory(session_id: str, history: list):
         print(f"Error saving session memory: {e}")
 
 def run_agent_turn(prompt: str, session_id: str) -> str:
-    """Execute single turn of Agent reasoning loop with GCS Memory, NYL AI Gateway, Model Proxy, and MCP Tools."""
+    """Execute single turn of Agent reasoning loop with GCS Memory, Gemini, and MCP Tools."""
     print(f"[AGENT_START] session_id={session_id}, prompt={prompt}")
     history = load_session_memory(session_id)
     reply_text = ""
     
-    # 1. Primary: NYL Enterprise AI Gateway (gemini-3.5-flash)
+    # 1. Invoke Gemini (via solutions/cloud_run_function pattern)
     try:
-        print(f"[AI_GATEWAY_TRY] Target URL: {AI_GATEWAY_URL}")
-        reply_text = query_nyl_ai_gateway(prompt, history)
-        print(f"[AI_GATEWAY_SUCCESS] Length={len(reply_text)}")
+        reply_text = query_gemini_vertex(prompt, history)
+        print(f"[GEMINI_SUCCESS] Length={len(reply_text)}")
     except Exception as e:
-        print(f"[AI_GATEWAY_ERROR] {str(e)}")
+        print(f"[GEMINI_ERROR] {str(e)}")
         
-        # 2. Secondary: Call nyl-ws2-vertex-model-proxy service directly
-        try:
-            reply_text = query_model_proxy_service(prompt)
-        except Exception as e2:
-            print(f"[MODEL_PROXY_ERROR] {str(e2)}")
-        
-    # 3. Fallback to direct MCP tool execution if both gateway & proxy are unreachable
+    # 2. Fallback to direct MCP tool execution if model is temporarily unreachable
     if not reply_text:
         lower_prompt = prompt.lower()
         if "create" in lower_prompt or "summary" in lower_prompt or "pdf" in lower_prompt or "export" in lower_prompt:
