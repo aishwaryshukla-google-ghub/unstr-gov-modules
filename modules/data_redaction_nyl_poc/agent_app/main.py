@@ -109,13 +109,22 @@ def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
     try:
         with urllib.request.urlopen(req, context=ssl_ctx, timeout=25) as resp:
             resp_data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", errors="ignore")
+        print(f"[AI_GATEWAY_HTTP_ERROR] HTTP {e.code}: {err_body}")
+        raise RuntimeError(f"AI Gateway HTTP {e.code}: {err_body}")
     except urllib.error.URLError as e:
         if "CERTIFICATE_VERIFY_FAILED" in str(e) or "self-signed" in str(e):
             print("[AI_GATEWAY_SSL_RETRY] Certificate verify failed on corporate proxy; retrying with unverified internal SSL context.")
             unverified_ctx = ssl._create_unverified_context()
             unverified_ctx.check_hostname = False
-            with urllib.request.urlopen(req, context=unverified_ctx, timeout=25) as resp:
-                resp_data = json.loads(resp.read().decode("utf-8"))
+            try:
+                with urllib.request.urlopen(req, context=unverified_ctx, timeout=25) as resp:
+                    resp_data = json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as e2:
+                err_body = e2.read().decode("utf-8", errors="ignore")
+                print(f"[AI_GATEWAY_HTTP_ERROR] HTTP {e2.code}: {err_body}")
+                raise RuntimeError(f"AI Gateway HTTP {e2.code}: {err_body}")
         else:
             raise e
 
