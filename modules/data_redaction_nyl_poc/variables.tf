@@ -6,7 +6,7 @@ variable "project_id" {
 variable "region" {
   description = "The GCP region"
   type        = string
-  default     = "us-east1"
+  default     = "us-east4"
 }
 
 variable "app_source_dir" {
@@ -70,15 +70,15 @@ variable "vpc_connector_egress_settings" {
 }
 
 variable "subnetwork" {
-  description = "The subnetwork name or URI for Direct VPC Egress (e.g. projects/nyl-pr-infra-nw-dev-01/regions/us-east4/subnetworks/vpc-g-aid-edm-dev-platform-use4)"
+  description = "The subnetwork name or URI for Direct VPC Egress"
   type        = string
-  default     = null
+  default     = "projects/nyl-pr-infra-nw-dev-01/regions/us-east4/subnetworks/vpc-g-aid-edm-dev-platform-use4"
 }
 
 variable "vpc_network" {
-  description = "Optional VPC network name or URI for Direct VPC Egress (e.g. projects/nyl-pr-infra-nw-dev-01/global/networks/vpc-g-aid-edm-dev)"
+  description = "Optional VPC network name or URI for Direct VPC Egress"
   type        = string
-  default     = null
+  default     = "projects/nyl-pr-infra-nw-dev-01/global/networks/vpc-g-aid-edm-dev"
 }
 
 variable "network_tags" {

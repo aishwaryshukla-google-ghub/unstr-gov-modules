@@ -47,11 +47,22 @@ resource "google_cloudfunctions2_function" "nyl_mcp_server" {
   }
 
   service_config {
-    max_instance_count    = 2
-    available_memory      = "512M"
-    timeout_seconds       = 120
-    ingress_settings      = var.ingress_settings
-    service_account_email = var.service_account_email
+    max_instance_count             = 2
+    available_memory               = "512M"
+    timeout_seconds                = 120
+    ingress_settings               = var.ingress_settings
+    service_account_email          = var.service_account_email
+    
+    # Direct VPC Egress
+    dynamic "direct_vpc_network_interface" {
+      for_each = var.subnetwork != null || var.vpc_network != null ? [1] : []
+      content {
+        network    = var.vpc_network
+        subnetwork = var.subnetwork
+        tags       = var.network_tags
+      }
+    }
+
     environment_variables = {
       PROJECT_ID    = var.project_id
       DATASET_ID    = var.dataset_id

@@ -44,11 +44,22 @@ resource "google_cloudfunctions2_function" "nyl_flask_app_cloud_function" {
   }
 
   service_config {
-    max_instance_count    = 1
-    available_memory      = "256M"
-    timeout_seconds       = 60
-    ingress_settings      = var.ingress_settings
-    service_account_email = var.service_account_email
+    max_instance_count             = 1
+    available_memory               = "256M"
+    timeout_seconds                = 60
+    ingress_settings               = var.ingress_settings
+    service_account_email          = var.service_account_email
+    
+    # Direct VPC Egress
+    dynamic "direct_vpc_network_interface" {
+      for_each = var.subnetwork != null || var.vpc_network != null ? [1] : []
+      content {
+        network    = var.vpc_network
+        subnetwork = var.subnetwork
+        tags       = var.network_tags
+      }
+    }
+
     environment_variables = {
       INSPECT_TEMPLATE_NAME    = google_data_loss_prevention_inspect_template.nyl_inspect_template.id
       DEIDENTIFY_TEMPLATE_NAME = google_data_loss_prevention_deidentify_template.nyl_deidentify_template.id
