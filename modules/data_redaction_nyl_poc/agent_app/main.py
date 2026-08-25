@@ -99,8 +99,8 @@ def query_gemini_vertex(prompt: str, history: list = None) -> str:
     payload = {
         "contents": contents,
         "generation_config": {
-            "temperature": 0.1,
-            "maxOutputTokens": 1024
+            "temperature": 0.2,
+            "maxOutputTokens": 4096
         }
     }
     
@@ -119,14 +119,14 @@ def query_gemini_vertex(prompt: str, history: list = None) -> str:
     
     print(f"[GEMINI_INVOKE] Endpoint: {endpoint_url}")
     try:
-        with urllib.request.urlopen(req, context=ssl_ctx, timeout=15) as resp:
+        with urllib.request.urlopen(req, context=ssl_ctx, timeout=30) as resp:
             resp_data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.URLError as e:
         if "CERTIFICATE_VERIFY_FAILED" in str(e) or "self-signed" in str(e):
             print("[GEMINI_SSL_RETRY] Retrying with unverified internal SSL context.")
             unverified_ctx = ssl._create_unverified_context()
             unverified_ctx.check_hostname = False
-            with urllib.request.urlopen(req, context=unverified_ctx, timeout=15) as resp:
+            with urllib.request.urlopen(req, context=unverified_ctx, timeout=30) as resp:
                 resp_data = json.loads(resp.read().decode("utf-8"))
         else:
             raise e
@@ -177,7 +177,7 @@ def call_mcp_tool(tool_name: str, tool_args: dict) -> str:
         try:
             headers = get_auth_headers(MCP_SERVER_URL)
             payload = {"tool": tool_name, "arguments": tool_args}
-            resp = requests.post(MCP_SERVER_URL, json=payload, headers=headers, timeout=10)
+            resp = requests.post(MCP_SERVER_URL, json=payload, headers=headers, timeout=15)
             if resp.status_code == 200:
                 return resp.json().get("result", "")
         except Exception:
@@ -211,9 +211,9 @@ def save_session_memory(session_id: str, history: list):
 
 def run_agent_turn(prompt: str, session_id: str) -> str:
     """
-    Fast, direct single-pass Agent turn:
+    Direct, complete Agent turn:
     1. Instantly resolves table & queries BigQuery via MCP.
-    2. Invokes Gemini 3.5 Flash for rapid, direct answer with SQL query and zero fluff.
+    2. Invokes Gemini 3.5 Flash for complete, direct answer with SQL query, data records, and zero greeting fluff.
     """
     import re
     print(f"[AGENT_START] session_id={session_id}, prompt={prompt}")
@@ -221,7 +221,7 @@ def run_agent_turn(prompt: str, session_id: str) -> str:
     proj = os.environ.get('PROJECT_ID', PROJECT_ID)
     lower_prompt = prompt.lower()
     
-    # 1. Instant Table Resolution
+    # 1. Table Resolution
     target_table = None
     if any(w in lower_prompt for w in ["payor", "check", "3rd party", "third party"]):
         target_table = f"{proj}.claims_silver.tbl_payor_checks_sftp"
@@ -242,9 +242,9 @@ def run_agent_turn(prompt: str, session_id: str) -> str:
     print(f"[BIGQUERY_EXEC] Querying {target_table}")
     data_records = call_mcp_tool("query_bigquery", {"sql_query": sql_query})
 
-    # 2. Direct, Zero-Fluff Gemini Prompt
+    # 2. Direct, Complete Gemini Prompt
     gemini_prompt = f"""
-You are a direct, concise BigQuery data assistant.
+You are a direct, professional BigQuery data assistant.
 
 Context:
 - Project: `{proj}`
@@ -258,11 +258,10 @@ User Question:
 "{prompt}"
 
 CRITICAL INSTRUCTIONS:
-1. NO greetings, NO pleasantries, NO introductory fluff (do NOT say "Hello", "As an AI", "I can confirm", etc.).
-2. Start IMMEDIATELY by stating the table location and the answer.
-3. Include the exact SQL query in a markdown code block.
-4. Answer the user's question directly with key details from the query results.
-5. Keep the response concise, clear, and fast to read.
+1. NO greetings, NO pleasantries, NO introductory fluff (never say "Hello", "As an AI", "I can confirm", etc.).
+2. Start DIRECTLY with the answer and the exact BigQuery table.
+3. Show the SQL query in a markdown code block.
+4. Provide a full, complete answer presenting the records and findings from the live query results without cutting off.
 """
 
     try:
