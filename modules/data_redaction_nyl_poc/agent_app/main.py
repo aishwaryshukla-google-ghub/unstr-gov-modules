@@ -84,13 +84,10 @@ def query_gemini_vertex(prompt: str, history: list = None) -> str:
     location = os.environ.get("VERTEX_LOCATION", "us-central1")
     model_name = os.environ.get("MODEL_NAME", MODEL_NAME)
     
-    # Check if AI Gateway is configured, otherwise use direct Vertex endpoint (solutions/cloud_run_function pattern)
-    endpoint_url = os.environ.get("AI_GATEWAY_URL")
-    if not endpoint_url or "test.aigw" in endpoint_url:
-        endpoint_url = (
-            f"https://aiplatform.googleapis.com/v1/"
-            f"projects/{project}/locations/{location}/publishers/google/models/{model_name}:generateContent"
-        )
+    endpoint_url = (
+        f"https://aiplatform.googleapis.com/v1/"
+        f"projects/{project}/locations/{location}/publishers/google/models/{model_name}:generateContent"
+    )
     
     contents = []
     if history:
@@ -124,23 +121,6 @@ def query_gemini_vertex(prompt: str, history: list = None) -> str:
     try:
         with urllib.request.urlopen(req, context=ssl_ctx, timeout=30) as resp:
             resp_data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode("utf-8", errors="ignore")
-        print(f"[GEMINI_HTTP_ERROR] HTTP {e.code}: {err_body}")
-        # If AI Gateway fails with 403, fallback to direct Vertex endpoint
-        if endpoint_url != f"https://aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model_name}:generateContent":
-            direct_url = f"https://aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models/{model_name}:generateContent"
-            print(f"[GEMINI_FALLBACK] Retrying via direct Vertex endpoint: {direct_url}")
-            req_direct = urllib.request.Request(
-                direct_url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers=headers,
-                method="POST"
-            )
-            with urllib.request.urlopen(req_direct, context=ssl_ctx, timeout=30) as resp:
-                resp_data = json.loads(resp.read().decode("utf-8"))
-        else:
-            raise RuntimeError(f"Vertex HTTP {e.code}: {err_body}")
     except urllib.error.URLError as e:
         if "CERTIFICATE_VERIFY_FAILED" in str(e) or "self-signed" in str(e):
             print("[GEMINI_SSL_RETRY] Retrying with unverified internal SSL context.")
@@ -234,60 +214,77 @@ def run_agent_turn(prompt: str, session_id: str) -> str:
     print(f"[AGENT_START] session_id={session_id}, prompt={prompt}")
     history = load_session_memory(session_id)
     reply_text = ""
+    proj = os.environ.get('PROJECT_ID', PROJECT_ID)
     
-    # 1. Invoke Gemini (via solutions/cloud_run_function pattern)
-    try:
-        reply_text = query_gemini_vertex(prompt, history)
-        print(f"[GEMINI_SUCCESS] Length={len(reply_text)}")
-    except Exception as e:
-        print(f"[GEMINI_ERROR] {str(e)}")
+    # 1. Handle explicit document creation requests
+    lower_prompt = prompt.lower()
+    if "create" in lower_prompt or "summary" in lower_prompt or "pdf" in lower_prompt or "export" in lower_prompt:
+        tool_result = call_mcp_tool("create_pdf", {"title": "claims_summary", "content": prompt})
+        reply_text = f"[Agent Response via MCP Tool]: {tool_result}"
+    else:
+        # 2. Intelligent claims_silver Table Discovery & Retrieval
+        target_table = None
+        data_records = ""
         
-    # 2. Fallback to direct MCP tool execution if model is temporarily unreachable
-    if not reply_text:
-        lower_prompt = prompt.lower()
-        if "create" in lower_prompt or "summary" in lower_prompt or "pdf" in lower_prompt or "export" in lower_prompt:
-            tool_result = call_mcp_tool("create_pdf", {"title": "policy_summary", "content": prompt})
-            reply_text = f"[Agent Response via MCP Tool]: {tool_result}"
+        # Match table by keywords
+        if any(w in lower_prompt for w in ["payor", "check", "3rd party", "third party"]):
+            target_table = f"{proj}.claims_silver.tbl_payor_checks_sftp"
+        elif any(w in lower_prompt for w in ["pay_to_date", "pay to date", "paid", "to date"]):
+            target_table = f"{proj}.claims_silver.tbl_pay_to_date_sftp"
+        elif any(w in lower_prompt for w in ["refund", "erefund", "electronic refund"]):
+            target_table = f"{proj}.claims_silver.tbl_refund_sharepoint"
+        elif any(w in lower_prompt for w in ["variance", "reconcil"]):
+            target_table = f"{proj}.claims_silver.tbl_variance_sharepoint"
         else:
-            proj = os.environ.get('PROJECT_ID', PROJECT_ID)
-            dtst = os.environ.get('DATASET_ID', DATASET_ID)
-            
             import re
-            # 1. Check if an explicit table is mentioned
             matches = re.findall(r'[a-zA-Z0-9_\-]+(?:\.[a-zA-Z0-9_\-]+)+', prompt)
-            target_table = None
             if matches:
-                target_table = matches[0]
-                if not target_table.startswith(proj):
-                    target_table = f"{proj}.{target_table}"
+                target_table = matches[0] if matches[0].startswith(proj) else f"{proj}.{matches[0]}"
             else:
-                # 2. Extract key topical keywords (e.g. refund, claim, policy)
-                words = [w.lower().strip("?,.!'\"") for w in prompt.split() if len(w) > 3 and w.lower() not in ["what", "about", "going", "know", "have", "with", "from", "this", "that", "these", "those", "does", "where", "when", "which", "could", "would", "tell", "show", "find", "there", "anything", "related"]]
-                search_kw = words[0] if words else "refund"
-                
-                # Check tables in known datasets and region INFORMATION_SCHEMA
-                disc_sql = f"SELECT table_name FROM `{proj}.claims_silver.INFORMATION_SCHEMA.TABLES` WHERE LOWER(table_name) LIKE '%{search_kw}%' OR LOWER(table_name) LIKE '%sharepoint%' LIMIT 3"
-                disc_res = call_mcp_tool("query_bigquery", {"sql_query": disc_sql})
-                
-                if "0 rows" in disc_res or "error" in disc_res.lower():
-                    # Check general claims_silver tables
-                    disc_sql = f"SELECT table_name FROM `{proj}.claims_silver.INFORMATION_SCHEMA.TABLES` LIMIT 3"
-                    disc_res = call_mcp_tool("query_bigquery", {"sql_query": disc_sql})
-                
-                # If a table was discovered
-                if "tbl_" in disc_res:
-                    tbl_name_match = re.search(r"tbl_[a-zA-Z0-9_]+", disc_res)
-                    tbl_name = tbl_name_match.group(0) if tbl_name_match else "tbl_refund_sharepoint"
-                    target_table = f"{proj}.claims_silver.{tbl_name}"
-            
-            if target_table:
-                query_sql = f"SELECT * FROM `{target_table}` LIMIT 3"
-                print(f"[BIGQUERY_MCP_EXEC] Querying table: {query_sql}")
-                tool_res = call_mcp_tool("query_bigquery", {"sql_query": query_sql})
-                reply_text = f"[Agent Response via BigQuery MCP]: Relevant records found from `{target_table}`:\n{tool_res}"
+                target_table = f"{proj}.claims_silver.tbl_payor_checks_sftp"
+        
+        # Fetch live BigQuery records via MCP Tool
+        if target_table:
+            query_sql = f"SELECT * FROM `{target_table}` LIMIT 3"
+            print(f"[BIGQUERY_MCP_EXEC] Querying {target_table}")
+            data_records = call_mcp_tool("query_bigquery", {"sql_query": query_sql})
+            print(f"[BIGQUERY_MCP_RESULT] Length={len(data_records)}")
+
+        # 3. Formulate Rich RAG Prompt for Gemini
+        enriched_prompt = f"""
+You are the New York Life (NYL) AI Claims & Unstructured Data Assistant.
+
+Dataset Information:
+- Project: `{proj}`
+- Primary Dataset: `{proj}.claims_silver`
+- Available Silver Tables:
+  1. `tbl_payor_checks_sftp`: 3rd Party Payor Checks ingested via SFTP
+  2. `tbl_pay_to_date_sftp`: Pay to date claims ingested via SFTP
+  3. `tbl_refund_sharepoint`: Refund examples & processed documents from SharePoint
+  4. `tbl_variance_sharepoint`: Variance reconciliation records from SharePoint
+
+Live Data Retrieved from BigQuery Table `{target_table}`:
+{data_records}
+
+User Query:
+{prompt}
+
+Instructions:
+1. Provide a direct, professional, and informative response to the user's question.
+2. Confirm the exact dataset and table name (`{target_table}`) where the data resides.
+3. Synthesize and highlight key details from the retrieved records above.
+"""
+
+        # 4. Invoke Gemini 3.5 Flash on Vertex AI
+        try:
+            reply_text = query_gemini_vertex(enriched_prompt, history)
+            print(f"[GEMINI_SUCCESS] Length={len(reply_text)}")
+        except Exception as e:
+            print(f"[GEMINI_ERROR] {str(e)}")
+            if data_records and "error" not in data_records.lower():
+                reply_text = f"[Agent Response via BigQuery MCP]: Relevant records found from `{target_table}`:\n{data_records}"
             else:
-                reply_text = f"[Agent Response via BigQuery MCP]: Processed request for '{prompt}'. No matching tables found in project `{proj}`."
-    
+                reply_text = f"[Agent Response via BigQuery MCP]: Queried dataset `{proj}.claims_silver`. Table: `{target_table}`."
     # Update and persist memory
     history.append({"role": "user", "text": prompt})
     history.append({"role": "model", "text": reply_text})
