@@ -344,6 +344,20 @@ Provide a clear, professional, and thorough answer to the user.
         try:
             reply_text = query_gemini_vertex(synthesis_prompt, history)
             print(f"[GEMINI_SYNTHESIS_SUCCESS] Length={len(reply_text)}")
+            
+            # If user requested a document / summary export, save Gemini's synthesis to Cloud Storage via MCP
+            lower_prompt = prompt.lower()
+            if any(w in lower_prompt for w in ["create", "pdf", "export", "document", "save"]):
+                try:
+                    doc_title = "claims_summary"
+                    for word in ["payor_checks", "payor", "variance", "refund", "pay_to_date", "checks"]:
+                        if word.replace("_", " ") in lower_prompt or word in lower_prompt:
+                            doc_title = f"{word}_summary"
+                            break
+                    saved_artifact = call_mcp_tool("create_pdf", {"title": doc_title, "content": reply_text})
+                    reply_text = f"{reply_text}\n\n[Document Artifact Created]: {saved_artifact}"
+                except Exception as e_doc:
+                    print(f"[ARTIFACT_SAVE_ERROR] {e_doc}")
         except Exception as e:
             print(f"[GEMINI_SYNTHESIS_ERROR] {e}")
             reply_text = f"[Agent Response via BigQuery MCP]: Relevant records found from `{sql_executed}`:\n{tool_output}"
