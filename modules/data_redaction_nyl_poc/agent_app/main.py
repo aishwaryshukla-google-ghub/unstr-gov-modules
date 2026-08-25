@@ -99,8 +99,8 @@ def query_gemini_vertex(prompt: str, history: list = None) -> str:
     payload = {
         "contents": contents,
         "generation_config": {
-            "temperature": 0.2,
-            "maxOutputTokens": 4096
+            "temperature": 0.1,
+            "maxOutputTokens": 1024
         }
     }
     
@@ -119,14 +119,14 @@ def query_gemini_vertex(prompt: str, history: list = None) -> str:
     
     print(f"[GEMINI_INVOKE] Endpoint: {endpoint_url}")
     try:
-        with urllib.request.urlopen(req, context=ssl_ctx, timeout=30) as resp:
+        with urllib.request.urlopen(req, context=ssl_ctx, timeout=15) as resp:
             resp_data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.URLError as e:
         if "CERTIFICATE_VERIFY_FAILED" in str(e) or "self-signed" in str(e):
             print("[GEMINI_SSL_RETRY] Retrying with unverified internal SSL context.")
             unverified_ctx = ssl._create_unverified_context()
             unverified_ctx.check_hostname = False
-            with urllib.request.urlopen(req, context=unverified_ctx, timeout=30) as resp:
+            with urllib.request.urlopen(req, context=unverified_ctx, timeout=15) as resp:
                 resp_data = json.loads(resp.read().decode("utf-8"))
         else:
             raise e
@@ -177,7 +177,7 @@ def call_mcp_tool(tool_name: str, tool_args: dict) -> str:
         try:
             headers = get_auth_headers(MCP_SERVER_URL)
             payload = {"tool": tool_name, "arguments": tool_args}
-            resp = requests.post(MCP_SERVER_URL, json=payload, headers=headers, timeout=15)
+            resp = requests.post(MCP_SERVER_URL, json=payload, headers=headers, timeout=10)
             if resp.status_code == 200:
                 return resp.json().get("result", "")
         except Exception:
@@ -211,164 +211,81 @@ def save_session_memory(session_id: str, history: list):
 
 def run_agent_turn(prompt: str, session_id: str) -> str:
     """
-    Execute intelligent ReAct Agent loop:
-    1. Gemini dynamically reasons and plans tool calls (e.g. generating custom BigQuery SQL).
-    2. Agent executes the chosen tool via MCP.
-    3. Gemini synthesizes live data into a rich final answer.
+    Fast, direct single-pass Agent turn:
+    1. Instantly resolves table & queries BigQuery via MCP.
+    2. Invokes Gemini 3.5 Flash for rapid, direct answer with SQL query and zero fluff.
     """
     import re
     print(f"[AGENT_START] session_id={session_id}, prompt={prompt}")
     history = load_session_memory(session_id)
     proj = os.environ.get('PROJECT_ID', PROJECT_ID)
+    lower_prompt = prompt.lower()
     
-    # -------------------------------------------------------------------------
-    # STAGE 1: Dynamic Tool Planning with Gemini
-    # -------------------------------------------------------------------------
-    planner_prompt = f"""
-You are the intelligent New York Life (NYL) AI Claims & Data Agent with direct access to Google BigQuery and Cloud Storage.
+    # 1. Instant Table Resolution
+    target_table = None
+    if any(w in lower_prompt for w in ["payor", "check", "3rd party", "third party"]):
+        target_table = f"{proj}.claims_silver.tbl_payor_checks_sftp"
+    elif any(w in lower_prompt for w in ["pay_to_date", "pay to date", "paid", "to date"]):
+        target_table = f"{proj}.claims_silver.tbl_pay_to_date_sftp"
+    elif any(w in lower_prompt for w in ["refund", "erefund"]):
+        target_table = f"{proj}.claims_silver.tbl_refund_sharepoint"
+    elif any(w in lower_prompt for w in ["variance", "reconcil"]):
+        target_table = f"{proj}.claims_silver.tbl_variance_sharepoint"
+    else:
+        matches = re.findall(r'[a-zA-Z0-9_\-]+(?:\.[a-zA-Z0-9_\-]+)+', prompt)
+        if matches:
+            target_table = matches[0] if matches[0].startswith(proj) else f"{proj}.{matches[0]}"
+        else:
+            target_table = f"{proj}.claims_silver.tbl_payor_checks_sftp"
 
-Environment Context:
-- GCP Project: `{proj}`
-- Primary Dataset: `{proj}.claims_silver`
-- Known Silver Tables in `{proj}.claims_silver`:
-  * `tbl_payor_checks_sftp`: 3rd Party Payor Check records ingested via SFTP (check numbers, payors, amounts, claim IDs)
-  * `tbl_pay_to_date_sftp`: Historical pay-to-date claim records ingested via SFTP
-  * `tbl_refund_sharepoint`: Electronic refund examples, document metadata, and extracted claims from SharePoint
-  * `tbl_variance_sharepoint`: Financial variance and reconciliation records from SharePoint
+    sql_query = f"SELECT * FROM `{target_table}` LIMIT 3"
+    print(f"[BIGQUERY_EXEC] Querying {target_table}")
+    data_records = call_mcp_tool("query_bigquery", {"sql_query": sql_query})
 
-Available Tools:
-1. `query_bigquery`: Execute a GoogleSQL query against BigQuery tables to fetch live rows.
-2. `create_pdf`: Export/create a summary document in Cloud Storage.
-3. `final_answer`: Answer directly if no database query is required.
+    # 2. Direct, Zero-Fluff Gemini Prompt
+    gemini_prompt = f"""
+You are a direct, concise BigQuery data assistant.
 
-User Request:
-"{prompt}"
-
-Instructions:
-Analyze the request and decide the best action. Output ONLY a valid JSON object in one of the following formats:
-
-Format A - To query BigQuery (write a valid GoogleSQL query for `{proj}.claims_silver`):
-```json
-{{
-  "action": "query_bigquery",
-  "sql_query": "SELECT * FROM `{proj}.claims_silver.tbl_payor_checks_sftp` LIMIT 5",
-  "thought": "The user is asking about payor checks, so I will query tbl_payor_checks_sftp."
-}}
-```
-
-Format B - To create a document:
-```json
-{{
-  "action": "create_pdf",
-  "title": "document_title",
-  "content": "summary text",
-  "thought": "User requested creating a document."
-}}
-```
-
-Format C - To answer directly without database querying:
-```json
-{{
-  "action": "final_answer",
-  "answer": "Your direct response here",
-  "thought": "No database lookup needed."
-}}
-```
-"""
-
-    tool_output = None
-    action_taken = None
-    sql_executed = None
-    
-    try:
-        plan_raw = query_gemini_vertex(planner_prompt, history)
-        print(f"[GEMINI_PLAN_RAW] {plan_raw}")
-        
-        json_match = re.search(r'\{.*\}', plan_raw, re.DOTALL)
-        if json_match:
-            decision = json.loads(json_match.group(0))
-            action = decision.get("action")
-            action_taken = action
-            
-            if action == "query_bigquery":
-                sql = decision.get("sql_query", "")
-                # Ensure project prefix if missing
-                if "claims_silver." in sql and proj not in sql:
-                    sql = sql.replace("claims_silver.", f"{proj}.claims_silver.")
-                sql_executed = sql
-                print(f"[AGENT_TOOL_EXEC] Running Gemini-generated SQL: {sql}")
-                tool_output = call_mcp_tool("query_bigquery", {"sql_query": sql})
-                print(f"[AGENT_TOOL_RESULT] Output length={len(str(tool_output))}")
-                
-            elif action == "create_pdf":
-                title = decision.get("title", "claims_document")
-                content = decision.get("content", prompt)
-                tool_output = call_mcp_tool("create_pdf", {"title": title, "content": content})
-                reply_text = f"[Agent Document Created]: {tool_output}"
-                history.append({"role": "user", "text": prompt})
-                history.append({"role": "model", "text": reply_text})
-                save_session_memory(session_id, history)
-                return reply_text
-                
-            elif action == "final_answer":
-                reply_text = decision.get("answer", "")
-                if reply_text:
-                    history.append({"role": "user", "text": prompt})
-                    history.append({"role": "model", "text": reply_text})
-                    save_session_memory(session_id, history)
-                    return reply_text
-    except Exception as e:
-        print(f"[AGENT_PLANNING_ERROR] {e}")
-
-    # -------------------------------------------------------------------------
-    # STAGE 2: Synthesis with Gemini using Live Tool Output
-    # -------------------------------------------------------------------------
-    if tool_output:
-        synthesis_prompt = f"""
-You are the New York Life (NYL) AI Claims & Data Assistant.
+Context:
+- Project: `{proj}`
+- Target Table: `{target_table}`
+- SQL Query Executed:
+{sql_query}
+- Live Query Results:
+{data_records}
 
 User Question:
 "{prompt}"
 
-Tool Executed:
-SQL Query: `{sql_executed}`
-Live BigQuery Results:
-{tool_output}
-
-Instructions:
-Provide a clear, professional, and thorough answer to the user.
-1. Answer the user's question directly and informatively.
-2. Confirm the exact dataset and table name (e.g. `{sql_executed}`) where the records were found.
-3. Highlight and summarize the key fields and data values found in the live BigQuery results.
+CRITICAL INSTRUCTIONS:
+1. NO greetings, NO pleasantries, NO introductory fluff (do NOT say "Hello", "As an AI", "I can confirm", etc.).
+2. Start IMMEDIATELY by stating the table location and the answer.
+3. Include the exact SQL query in a markdown code block.
+4. Answer the user's question directly with key details from the query results.
+5. Keep the response concise, clear, and fast to read.
 """
-        try:
-            reply_text = query_gemini_vertex(synthesis_prompt, history)
-            print(f"[GEMINI_SYNTHESIS_SUCCESS] Length={len(reply_text)}")
-            
-            # If user requested a document / summary export, save Gemini's synthesis to Cloud Storage via MCP
-            lower_prompt = prompt.lower()
-            if any(w in lower_prompt for w in ["create", "pdf", "export", "document", "save"]):
-                try:
-                    doc_title = "claims_summary"
-                    for word in ["payor_checks", "payor", "variance", "refund", "pay_to_date", "checks"]:
-                        if word.replace("_", " ") in lower_prompt or word in lower_prompt:
-                            doc_title = f"{word}_summary"
-                            break
-                    saved_artifact = call_mcp_tool("create_pdf", {"title": doc_title, "content": reply_text})
-                    reply_text = f"{reply_text}\n\n[Document Artifact Created]: {saved_artifact}"
-                except Exception as e_doc:
-                    print(f"[ARTIFACT_SAVE_ERROR] {e_doc}")
-        except Exception as e:
-            print(f"[GEMINI_SYNTHESIS_ERROR] {e}")
-            reply_text = f"[Agent Response via BigQuery MCP]: Relevant records found from `{sql_executed}`:\n{tool_output}"
-    else:
-        # Fallback if planning did not query or tool failed
-        try:
-            reply_text = query_gemini_vertex(prompt, history)
-        except Exception as e:
-            reply_text = f"Unable to complete request: {str(e)}"
 
-    # Update and persist session memory
+    try:
+        reply_text = query_gemini_vertex(gemini_prompt, history)
+        print(f"[GEMINI_SUCCESS] Length={len(reply_text)}")
+    except Exception as e:
+        print(f"[GEMINI_ERROR] {e}")
+        reply_text = f"Data is located in table `{target_table}`.\n\nQuery executed:\n```sql\n{sql_query}\n```\n\nResults:\n{data_records}"
+
+    # 3. Document Artifact Export if explicitly requested
+    if any(w in lower_prompt for w in ["create", "pdf", "export", "save document"]):
+        try:
+            doc_title = "claims_summary"
+            for word in ["payor_checks", "payor", "variance", "refund", "pay_to_date", "checks"]:
+                if word.replace("_", " ") in lower_prompt or word in lower_prompt:
+                    doc_title = f"{word}_summary"
+                    break
+            saved_artifact = call_mcp_tool("create_pdf", {"title": doc_title, "content": reply_text})
+            reply_text = f"{reply_text}\n\n[Document Artifact Created]: {saved_artifact}"
+        except Exception as e_doc:
+            print(f"[ARTIFACT_SAVE_ERROR] {e_doc}")
+
+    # Persist session memory
     history.append({"role": "user", "text": prompt})
     history.append({"role": "model", "text": reply_text})
     save_session_memory(session_id, history)
