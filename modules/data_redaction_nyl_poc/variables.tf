@@ -18,6 +18,7 @@ variable "app_source_dir" {
 variable "service_account_email" {
   description = "Service Account email to run Cloud Run"
   type        = string
+  default     = "nyl-ws2-vertex-model-proxy-sa@nyl-pr-dbx-data-dev-01.iam.gserviceaccount.com"
 }
 
 variable "dataset_id" {
