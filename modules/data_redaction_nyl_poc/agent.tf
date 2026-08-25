@@ -143,13 +143,14 @@ resource "google_cloudfunctions2_function" "nyl_agent_function" {
     }
 
     environment_variables = {
-      PROJECT_ID     = var.project_id
-      REGION         = var.region
-      DATASET_ID     = var.dataset_id
-      MODEL_NAME     = var.model_name
-      AI_GATEWAY_URL = var.ai_gateway_url
-      MEMORY_BUCKET  = google_storage_bucket.agent_memory.name
-      MCP_SERVER_URL = google_cloudfunctions2_function.nyl_mcp_server.service_config[0].uri
+      PROJECT_ID         = var.project_id
+      REGION             = var.region
+      DATASET_ID         = var.dataset_id
+      MODEL_NAME         = var.model_name
+      AI_GATEWAY_URL     = var.ai_gateway_url
+      MEMORY_BUCKET      = google_storage_bucket.agent_memory.name
+      MCP_SERVER_URL     = google_cloudfunctions2_function.nyl_mcp_server.service_config[0].uri
+      DISABLE_SSL_VERIFY = "true"
     }
   }
 

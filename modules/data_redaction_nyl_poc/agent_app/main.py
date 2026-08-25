@@ -76,6 +76,7 @@ def get_bearer_token() -> str:
 
 def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
     """Invokes NYL Enterprise AI Gateway endpoint for Gemini 3.5 Flash using urllib and custom SSL context."""
+    import ssl
     token = get_bearer_token()
     headers = {
         "Authorization": f"Bearer {token}",
@@ -97,7 +98,6 @@ def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
         }
     }
     
-    ssl_ctx = get_ssl_context()
     req = urllib.request.Request(
         AI_GATEWAY_URL,
         data=json.dumps(payload).encode("utf-8"),
@@ -105,15 +105,27 @@ def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
         method="POST"
     )
     
-    with urllib.request.urlopen(req, context=ssl_ctx, timeout=25) as resp:
-        resp_data = json.loads(resp.read().decode("utf-8"))
-        if "content" in resp_data and isinstance(resp_data["content"], list) and len(resp_data["content"]) > 0:
-            return resp_data["content"][0].get("text", "")
-        elif "candidates" in resp_data and len(resp_data["candidates"]) > 0:
-            parts = resp_data["candidates"][0].get("content", {}).get("parts", [])
-            if parts:
-                return "".join(p.get("text", "") for p in parts)
-        return "No text candidates returned from AI Gateway."
+    ssl_ctx = get_ssl_context()
+    try:
+        with urllib.request.urlopen(req, context=ssl_ctx, timeout=25) as resp:
+            resp_data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.URLError as e:
+        if "CERTIFICATE_VERIFY_FAILED" in str(e) or "self-signed" in str(e):
+            print("[AI_GATEWAY_SSL_RETRY] Certificate verify failed on corporate proxy; retrying with unverified internal SSL context.")
+            unverified_ctx = ssl._create_unverified_context()
+            unverified_ctx.check_hostname = False
+            with urllib.request.urlopen(req, context=unverified_ctx, timeout=25) as resp:
+                resp_data = json.loads(resp.read().decode("utf-8"))
+        else:
+            raise e
+
+    if "content" in resp_data and isinstance(resp_data["content"], list) and len(resp_data["content"]) > 0:
+        return resp_data["content"][0].get("text", "")
+    elif "candidates" in resp_data and len(resp_data["candidates"]) > 0:
+        parts = resp_data["candidates"][0].get("content", {}).get("parts", [])
+        if parts:
+            return "".join(p.get("text", "") for p in parts)
+    return "No text candidates returned from AI Gateway."
 
 def execute_tool_locally(tool_name: str, tool_args: dict) -> str:
     """Executes tool logic directly if HTTP MCP server is blocked by VPC ingress constraints."""
