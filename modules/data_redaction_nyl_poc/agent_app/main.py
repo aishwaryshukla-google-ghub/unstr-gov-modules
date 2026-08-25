@@ -20,7 +20,7 @@ DATASET_ID = os.environ.get("DATASET_ID", "bq_unstr_dtst_v2")
 MEMORY_BUCKET = os.environ.get("MEMORY_BUCKET", "")
 MCP_SERVER_URL = os.environ.get("MCP_SERVER_URL", "")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-3.5-flash")
-AI_GATEWAY_URL = os.environ.get("AI_GATEWAY_URL", "https://test.aigw.newyorklife.com/eis-llm-gemini/gemini-3.5-flash:generateContent")
+AI_GATEWAY_URL = os.environ.get("AI_GATEWAY_URL", "https://dev.aigw.newyorklife.com/eis-llm-gemini/gemini-3.5-flash:generateContent")
 
 # Initialize Vertex AI, BigQuery & Storage Client
 if PROJECT_ID:
@@ -123,7 +123,10 @@ def get_bearer_token() -> str:
     return credentials.token
 
 def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
-    """Invokes NYL Enterprise AI Gateway endpoint for Gemini 3.5 Flash."""
+    """Invokes NYL Enterprise AI Gateway endpoint for Gemini 3.5 Flash using urllib and custom SSL context."""
+    import urllib.request
+    import urllib.error
+    
     token = get_bearer_token()
     headers = {
         "Authorization": f"Bearer {token}",
@@ -137,17 +140,48 @@ def query_nyl_ai_gateway(prompt: str, history: list = None) -> str:
             contents.append({"role": role, "parts": [{"text": turn.get("text", "")}]})
     contents.append({"role": "user", "parts": [{"text": prompt}]})
     
-    payload = {"contents": contents}
-    resp = requests.post(AI_GATEWAY_URL, json=payload, headers=headers, timeout=10)
-    if resp.status_code == 200:
-        data = resp.json()
-        if "content" in data and isinstance(data["content"], list) and len(data["content"]) > 0:
-            return data["content"][0].get("text", "")
-        elif "candidates" in data and len(data["candidates"]) > 0:
-            parts = data["candidates"][0].get("content", {}).get("parts", [])
-            if parts:
-                return parts[0].get("text", "")
-    raise Exception(f"HTTP {resp.status_code}: {resp.text[:120]}")
+    payload = {
+        "contents": contents,
+        "generation_config": {
+            "temperature": 0.2,
+            "maxOutputTokens": 4096
+        }
+    }
+    
+    urls_to_try = [
+        AI_GATEWAY_URL,
+        "https://dev.aigw.newyorklife.com/eis-llm-gemini/gemini-3.5-flash:generateContent",
+        "https://test.aigw.newyorklife.com/eis-llm-gemini/gemini-3.5-flash:generateContent"
+    ]
+    seen = set()
+    unique_urls = [u for u in urls_to_try if not (u in seen or seen.add(u))]
+    
+    last_error = None
+    ssl_ctx = get_ssl_context()
+    
+    for url in unique_urls:
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers=headers,
+                method="POST"
+            )
+            with urllib.request.urlopen(req, context=ssl_ctx, timeout=15) as resp:
+                resp_data = json.loads(resp.read().decode("utf-8"))
+                if "content" in resp_data and isinstance(resp_data["content"], list) and len(resp_data["content"]) > 0:
+                    return resp_data["content"][0].get("text", "")
+                elif "candidates" in resp_data and len(resp_data["candidates"]) > 0:
+                    parts = resp_data["candidates"][0].get("content", {}).get("parts", [])
+                    if parts:
+                        return "".join(p.get("text", "") for p in parts)
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8")
+            last_error = f"{url} HTTP {e.code}: {err_body[:120]}"
+        except Exception as e:
+            last_error = f"{url} Error: {str(e)[:120]}"
+            
+    raise Exception(f"AI Gateway failed: {last_error}")
 
 def query_vertex_rest(prompt: str, history: list = None) -> str:
     """

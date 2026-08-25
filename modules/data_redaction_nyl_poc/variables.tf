@@ -54,7 +54,7 @@ variable "model_name" {
 variable "ai_gateway_url" {
   description = "NYL Enterprise AI Gateway endpoint for Gemini"
   type        = string
-  default     = "https://test.aigw.newyorklife.com/eis-llm-gemini/gemini-3.5-flash:generateContent"
+  default     = "https://dev.aigw.newyorklife.com/eis-llm-gemini/gemini-3.5-flash:generateContent"
 }
 
 variable "vpc_connector" {
