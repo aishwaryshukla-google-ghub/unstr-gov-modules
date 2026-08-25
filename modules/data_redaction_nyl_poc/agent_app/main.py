@@ -149,9 +149,9 @@ def execute_tool_locally(tool_name: str, tool_args: dict) -> str:
         if bucket_name:
             try:
                 bucket = storage_client.bucket(bucket_name)
-                filename = f"exports/{title.replace(' ', '_').lower()}.txt"
+                filename = f"exports/{title}" if "." in title else f"exports/{title.replace(' ', '_').lower()}.txt"
                 blob = bucket.blob(filename)
-                blob.upload_from_string(f"TITLE: {title}\n\n{content}", content_type="text/plain")
+                blob.upload_from_string(content, content_type="text/plain")
                 return f"Document '{title}' created and saved to gs://{bucket_name}/{filename}"
             except Exception as e:
                 return f"Document '{title}' generated. Storage note: {str(e)}"
@@ -213,7 +213,7 @@ def run_agent_turn(prompt: str, session_id: str) -> str:
     """
     Direct, complete Agent turn:
     1. Instantly resolves table & queries BigQuery via MCP.
-    2. Invokes Gemini 3.5 Flash for complete, direct answer with SQL query, data records, and zero greeting fluff.
+    2. Handles document generation (clean content + custom filename) or direct data Q&A.
     """
     import re
     print(f"[AGENT_START] session_id={session_id}, prompt={prompt}")
@@ -242,8 +242,49 @@ def run_agent_turn(prompt: str, session_id: str) -> str:
     print(f"[BIGQUERY_EXEC] Querying {target_table}")
     data_records = call_mcp_tool("query_bigquery", {"sql_query": sql_query})
 
-    # 2. Direct, Complete Gemini Prompt
-    gemini_prompt = f"""
+    # 2. Check if this is a Document Creation request
+    is_doc_request = any(w in lower_prompt for w in ["create", "pdf", "export", "doc", "document", "save"]) and any(w in lower_prompt for w in ["doc", "pdf", "file", "document", "report", "summary", ".txt"])
+
+    if is_doc_request:
+        # Extract custom filename if requested (e.g. NYL_DEMO_DOC.txt)
+        file_match = re.search(r'([a-zA-Z0-9_\-]+\.(?:txt|pdf|md|doc))', prompt, re.IGNORECASE)
+        name_match = re.search(r'(?:call|name)\s+(?:the\s+)?(?:document|doc|file)\s+([a-zA-Z0-9_\.\-]+)', prompt, re.IGNORECASE)
+        
+        if file_match:
+            doc_filename = file_match.group(1)
+        elif name_match:
+            doc_filename = name_match.group(1)
+            if "." not in doc_filename:
+                doc_filename += ".txt"
+        else:
+            doc_filename = "claims_summary.txt"
+
+        doc_prompt = f"""
+You are an executive document author for New York Life.
+
+Source Data from BigQuery Table `{target_table}`:
+{data_records}
+
+User Request:
+"{prompt}"
+
+CRITICAL INSTRUCTIONS:
+1. Write ONLY the clean, polished content for the document.
+2. Strictly obey formatting/length instructions from the user (e.g. max sentences, bullet points, executive summary).
+3. DO NOT include SQL queries, query descriptions, preamble, greetings, or conversational remarks.
+4. Output ONLY the raw document text.
+"""
+        try:
+            doc_content = query_gemini_vertex(doc_prompt, history).strip()
+            # Save the clean document content to GCS
+            saved_msg = call_mcp_tool("create_pdf", {"title": doc_filename, "content": doc_content})
+            reply_text = f"{saved_msg}\n\nDocument Content:\n{doc_content}"
+        except Exception as e:
+            reply_text = f"Error generating document: {e}"
+
+    else:
+        # Standard Data Query & Answer
+        gemini_prompt = f"""
 You are a direct, professional BigQuery data assistant.
 
 Context:
@@ -261,28 +302,14 @@ CRITICAL INSTRUCTIONS:
 1. NO greetings, NO pleasantries, NO introductory fluff (never say "Hello", "As an AI", "I can confirm", etc.).
 2. Start DIRECTLY with the answer and the exact BigQuery table.
 3. Show the SQL query in a markdown code block.
-4. Provide a full, complete answer presenting the records and findings from the live query results without cutting off.
+4. Provide a full, complete answer presenting the records, key contacts, or findings from the live query results.
 """
-
-    try:
-        reply_text = query_gemini_vertex(gemini_prompt, history)
-        print(f"[GEMINI_SUCCESS] Length={len(reply_text)}")
-    except Exception as e:
-        print(f"[GEMINI_ERROR] {e}")
-        reply_text = f"Data is located in table `{target_table}`.\n\nQuery executed:\n```sql\n{sql_query}\n```\n\nResults:\n{data_records}"
-
-    # 3. Document Artifact Export if explicitly requested
-    if any(w in lower_prompt for w in ["create", "pdf", "export", "save document"]):
         try:
-            doc_title = "claims_summary"
-            for word in ["payor_checks", "payor", "variance", "refund", "pay_to_date", "checks"]:
-                if word.replace("_", " ") in lower_prompt or word in lower_prompt:
-                    doc_title = f"{word}_summary"
-                    break
-            saved_artifact = call_mcp_tool("create_pdf", {"title": doc_title, "content": reply_text})
-            reply_text = f"{reply_text}\n\n[Document Artifact Created]: {saved_artifact}"
-        except Exception as e_doc:
-            print(f"[ARTIFACT_SAVE_ERROR] {e_doc}")
+            reply_text = query_gemini_vertex(gemini_prompt, history)
+            print(f"[GEMINI_SUCCESS] Length={len(reply_text)}")
+        except Exception as e:
+            print(f"[GEMINI_ERROR] {e}")
+            reply_text = f"Data is located in table `{target_table}`.\n\nQuery executed:\n```sql\n{sql_query}\n```\n\nResults:\n{data_records}"
 
     # Persist session memory
     history.append({"role": "user", "text": prompt})

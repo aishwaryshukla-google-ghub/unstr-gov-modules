@@ -30,9 +30,9 @@ def create_pdf(title: str, content: str) -> str:
     if bucket_name:
         try:
             bucket = storage_client.bucket(bucket_name)
-            filename = f"exports/{title.replace(' ', '_').lower()}.txt"
+            filename = f"exports/{title}" if "." in title else f"exports/{title.replace(' ', '_').lower()}.txt"
             blob = bucket.blob(filename)
-            blob.upload_from_string(f"TITLE: {title}\n\n{content}", content_type="text/plain")
+            blob.upload_from_string(content, content_type="text/plain")
             return f"Document '{title}' created and saved to gs://{bucket_name}/{filename}"
         except Exception as e:
             return f"Simulated artifact created for '{title}'. Storage error: {str(e)}"
