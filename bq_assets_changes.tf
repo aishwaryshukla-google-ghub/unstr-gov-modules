@@ -1,40 +1,54 @@
 # =============================================================================
-# NYL DATA PLATFORM - BQ ASSETS CHANGES FOR SHAREPOINT NYLFINANCETECHNOLOGY
-# =============================================================================
-# Direct Pointing Approach: Points BigQuery Object Table directly to
-# 'gs://gcp-native-ws2-unstructured-dev/enriched/sharepoint/nylfinancetechnology/*'
-# with ZERO file migration required.
+# NYL DATA PLATFORM - COMPLETE WORKING FIX FOR BQ ASSETS
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# STEP 1: ADD OBJECT TABLE MODULE FOR ENRICHED SHAREPOINT DATA
-# Paste this block into bq_assets.tf in the Object Tables section:
+# FIX 1: RESTORE THE ORIGINAL UNDERWRITING SILVER TABLE ID (Line ~431)
+# (Setting table_id back to tbl_risk_variance_sftp_v2 stops the destroy attempt)
 # -----------------------------------------------------------------------------
-module "claims_sharepoint_enriched_object_tables" {
-  source          = "./modules/bigquery/tables/object"
-  project_id      = "nyl-pr-dbx-data-dev-01"
-  region          = "us-east4"
-  dataset_id      = "claims_bronze"
-  create_dataset  = false
-  gcs_bucket_name = "gcp-native-ws2-unstructured-dev"
+# resource "google_bigquery_table" "risk_variance_sftp_table" {
+#   project             = "nyl-pr-dbx-data-dev-01"
+#   dataset_id          = google_bigquery_dataset.dtst_underwriting_silver.dataset_id
+#   table_id            = "tbl_risk_variance_sftp_v2"
+#   deletion_protection = false
+#   ...
+# }
 
-  table_mappings = {
-    "sharepoint_nylfinancetechnology" = "enriched/sharepoint/nylfinancetechnology/*"
-  }
+# -----------------------------------------------------------------------------
+# FIX 2: REUSE EXISTING CONNECTION FOR ENRICHED SHAREPOINT OBJECT TABLE
+# (Reusing module.claims_object_tables eliminates GCP IAM propagation 400 error)
+# -----------------------------------------------------------------------------
 
-  metadata_cache_mode = "AUTOMATIC"
-  max_staleness       = "0-0 0 0:30:0"
-
-  labels = {
-    domain = "claims"
-    env    = "env"
-  }
+# 1. Grant the existing Connection SA read access to gcp-native-ws2-unstructured-dev
+resource "google_storage_bucket_iam_member" "sharepoint_enriched_reader" {
+  bucket = "gcp-native-ws2-unstructured-dev"
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${module.claims_object_tables.connection_service_account}"
 }
 
-# -----------------------------------------------------------------------------
-# STEP 2: SILVER TABLE POPULATION BIGQUERY JOB
-# Paste this block into bq_assets.tf in the BigQuery Jobs section:
-# -----------------------------------------------------------------------------
+# 2. Bronze Object Table pointing directly to 177 files in gcp-native-ws2-unstructured-dev
+resource "google_bigquery_table" "obj_tbl_sharepoint_nylfinancetechnology" {
+  project             = "nyl-pr-dbx-data-dev-01"
+  dataset_id          = google_bigquery_dataset.dtst_claims_bronze.dataset_id
+  table_id            = "obj_tbl_sharepoint_nylfinancetechnology"
+  deletion_protection = false
+  max_staleness       = "0-0 0 0:30:0"
+
+  external_data_configuration {
+    autodetect          = false
+    object_metadata     = "SIMPLE"
+    connection_id       = module.claims_object_tables.connection_id
+    metadata_cache_mode = "AUTOMATIC"
+
+    source_uris = [
+      "gs://gcp-native-ws2-unstructured-dev/enriched/sharepoint/nylfinancetechnology/*"
+    ]
+  }
+
+  depends_on = [google_storage_bucket_iam_member.sharepoint_enriched_reader]
+}
+
+# 3. Silver Population Job for SharePoint Nylfinancetechnology
 resource "google_bigquery_job" "populate_sharepoint_nylfinancetechnology_silver_table" {
   job_id   = "job_populate_sharepoint_nylfinancetechnology_silver_table_${formatdate("YYYYMMDDhhmmss", timestamp())}"
   project  = "nyl-pr-dbx-data-dev-01"
@@ -50,7 +64,7 @@ resource "google_bigquery_job" "populate_sharepoint_nylfinancetechnology_silver_
           , 'gemini'
         ) as extracted_content
         , current_timestamp() as process_ts
-      from `${google_bigquery_dataset.dtst_claims_bronze.dataset_id}.${module.claims_sharepoint_enriched_object_tables.object_table_ids["sharepoint_nylfinancetechnology"]}` t_1
+      from `${google_bigquery_dataset.dtst_claims_bronze.dataset_id}.${google_bigquery_table.obj_tbl_sharepoint_nylfinancetechnology.table_id}` t_1
       ;
     SQL
     use_legacy_sql = false
@@ -68,8 +82,9 @@ resource "google_bigquery_job" "populate_sharepoint_nylfinancetechnology_silver_
   depends_on = [
     google_bigquery_dataset.dtst_claims_bronze,
     google_bigquery_dataset.dtst_claims_silver,
-    module.claims_sharepoint_enriched_object_tables,
+    google_bigquery_table.obj_tbl_sharepoint_nylfinancetechnology,
     module.bigquery_remote_function_gemini
   ]
 }
+
 
