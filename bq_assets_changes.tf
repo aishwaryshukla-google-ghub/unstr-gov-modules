@@ -48,7 +48,21 @@ resource "google_bigquery_table" "obj_tbl_sharepoint_nylfinancetechnology" {
   depends_on = [google_storage_bucket_iam_member.sharepoint_enriched_reader]
 }
 
-# 3. Silver Population Job for SharePoint Nylfinancetechnology
+# 3. Automated Cache Refresh Job (Runs under Harness deployment Service Account)
+resource "google_bigquery_job" "refresh_sharepoint_metadata_cache" {
+  job_id   = "job_refresh_sharepoint_cache_${formatdate("YYYYMMDDhhmmss", timestamp())}"
+  project  = "nyl-pr-dbx-data-dev-01"
+  location = "us-east4"
+
+  query {
+    query          = "CALL BQ.REFRESH_EXTERNAL_METADATA_CACHE('`nyl-pr-dbx-data-dev-01.claims_bronze.obj_tbl_sharepoint_nylfinancetechnology`');"
+    use_legacy_sql = false
+  }
+
+  depends_on = [google_bigquery_table.obj_tbl_sharepoint_nylfinancetechnology]
+}
+
+# 4. Silver Population Job for SharePoint Nylfinancetechnology
 resource "google_bigquery_job" "populate_sharepoint_nylfinancetechnology_silver_table" {
   job_id   = "job_populate_sharepoint_nylfinancetechnology_silver_table_${formatdate("YYYYMMDDhhmmss", timestamp())}"
   project  = "nyl-pr-dbx-data-dev-01"
@@ -83,8 +97,10 @@ resource "google_bigquery_job" "populate_sharepoint_nylfinancetechnology_silver_
     google_bigquery_dataset.dtst_claims_bronze,
     google_bigquery_dataset.dtst_claims_silver,
     google_bigquery_table.obj_tbl_sharepoint_nylfinancetechnology,
+    google_bigquery_job.refresh_sharepoint_metadata_cache,
     module.bigquery_remote_function_gemini
   ]
 }
+
 
 
