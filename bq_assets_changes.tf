@@ -1,68 +1,102 @@
 # =============================================================================
-# NYL DATA PLATFORM - COMPLETE WORKING FIX FOR BQ ASSETS
+# NYL DATA PLATFORM - BQ ASSETS CHANGES FOR SHAREPOINT NYLFINANCETECHNOLOGY
+# =============================================================================
+# These are the ONLY changes needed in the client's repository ('nyl-ws2-gcp-data-platform')
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# FIX 1: RESTORE THE ORIGINAL UNDERWRITING SILVER TABLE ID (Line ~431)
-# (Setting table_id back to tbl_risk_variance_sftp_v2 stops the destroy attempt)
+# STEP 1: AUTOMATED STORAGE TRANSFER SERVICE (STS) (Bucket-to-Bucket File Copy)
+# Paste this in 'bq_assets.tf' (or 'main.tf'):
 # -----------------------------------------------------------------------------
-# resource "google_bigquery_table" "risk_variance_sftp_table" {
-#   project             = "nyl-pr-dbx-data-dev-01"
-#   dataset_id          = google_bigquery_dataset.dtst_underwriting_silver.dataset_id
-#   table_id            = "tbl_risk_variance_sftp_v2"
-#   deletion_protection = false
-#   ...
+data "google_storage_transfer_project_service_account" "default" {
+  project = "nyl-pr-dbx-data-dev-01"
+}
+
+resource "google_storage_bucket_iam_member" "sts_source_reader" {
+  bucket = "gcp-native-ws2-unstructured-dev"
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${data.google_storage_transfer_project_service_account.default.email}"
+}
+
+resource "google_storage_bucket_iam_member" "sts_sink_writer" {
+  bucket = "gcp-native-ws2-unstructured-dev-claims"
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${data.google_storage_transfer_project_service_account.default.email}"
+}
+
+resource "google_storage_transfer_job" "copy_sharepoint_files_to_claims" {
+  description = "Automated copy of 177 SharePoint markdown files to claims bronze bucket"
+  project     = "nyl-pr-dbx-data-dev-01"
+
+  transfer_spec {
+    gcs_data_source {
+      bucket_name = "gcp-native-ws2-unstructured-dev"
+      path        = "enriched/sharepoint/nylfinancetechnology/"
+    }
+
+    gcs_data_sink {
+      bucket_name = "gcp-native-ws2-unstructured-dev-claims"
+      path        = "builder/bronze/sharepoint/nylfinancetechnology/"
+    }
+
+    transfer_options {
+      overwrite_objects_already_existing_in_sink = true
+    }
+  }
+
+  schedule {
+    schedule_start_date {
+      year  = 2026
+      month = 8
+      day   = 26
+    }
+  }
+
+  depends_on = [
+    google_storage_bucket_iam_member.sts_source_reader,
+    google_storage_bucket_iam_member.sts_sink_writer
+  ]
+}
+
+# -----------------------------------------------------------------------------
+# STEP 2: UPDATE 'module "claims_object_tables"' IN 'bq_assets.tf'
+# Add the new mapping line and depends_on:
+# -----------------------------------------------------------------------------
+# In bq_assets.tf (Line ~35):
+#
+# module "claims_object_tables" {
+#   source          = "./modules/bigquery/tables/object"
+#   project_id      = "nyl-pr-dbx-data-dev-01"
+#   region          = "us-east4"
+#   dataset_id      = "claims_bronze"
+#   create_dataset  = false
+#   gcs_bucket_name = "gcp-native-ws2-unstructured-dev-claims"
+#
+#   table_mappings = {
+#     "payor_checks_sftp"               = "builder/bronze/sftp/iq-compensation/3rd Party Payor Checks.pdf"
+#     "pay_to_date_sftp"                = "builder/bronze/sftp/iq-compensation/4AE4 and Risk Paid to Date Handling.docx"
+#     "refund_sharepoint"               = "builder/bronze/sftp/iq-compensation/1x EFT Payment - eRefunds (Electronic Refunds) Examples."
+#     "variance_sharepoint"             = "builder/bronze/sftp/iq-compensation/5EC6 Variance.pdf"
+#     # NEW MAPPING (177 Files in claims bucket):
+#     "sharepoint_nylfinancetechnology" = "builder/bronze/sharepoint/nylfinancetechnology/*"
+#   }
+#
+#   metadata_cache_mode = "AUTOMATIC"
+#   max_staleness       = "0-0 0 0:30:0"
+#   labels = {
+#     domain = "claims"
+#     env    = "env"
+#   }
+#
+#   depends_on = [
+#     google_storage_transfer_job.copy_sharepoint_files_to_claims
+#   ]
 # }
 
 # -----------------------------------------------------------------------------
-# FIX 2: REUSE EXISTING CONNECTION FOR ENRICHED SHAREPOINT OBJECT TABLE
-# (Reusing module.claims_object_tables eliminates GCP IAM propagation 400 error)
+# STEP 3: SILVER POPULATION JOB IN 'bq_assets.tf'
+# Paste this in the BigQuery Jobs section of 'bq_assets.tf':
 # -----------------------------------------------------------------------------
-
-# 1. Grant the existing Connection SA read access to gcp-native-ws2-unstructured-dev
-resource "google_storage_bucket_iam_member" "sharepoint_enriched_reader" {
-  bucket = "gcp-native-ws2-unstructured-dev"
-  role   = "roles/storage.objectViewer"
-  member = "serviceAccount:${module.claims_object_tables.connection_service_account}"
-}
-
-# 2. Bronze Object Table pointing directly to 177 files in gcp-native-ws2-unstructured-dev
-resource "google_bigquery_table" "obj_tbl_sharepoint_nylfinancetechnology" {
-  project             = "nyl-pr-dbx-data-dev-01"
-  dataset_id          = google_bigquery_dataset.dtst_claims_bronze.dataset_id
-  table_id            = "obj_tbl_sharepoint_nylfinancetechnology"
-  deletion_protection = false
-  max_staleness       = "0-0 0 0:30:0"
-
-  external_data_configuration {
-    autodetect          = false
-    object_metadata     = "SIMPLE"
-    connection_id       = module.claims_object_tables.connection_id
-    metadata_cache_mode = "AUTOMATIC"
-
-    source_uris = [
-      "gs://gcp-native-ws2-unstructured-dev/enriched/sharepoint/nylfinancetechnology/*"
-    ]
-  }
-
-  depends_on = [google_storage_bucket_iam_member.sharepoint_enriched_reader]
-}
-
-# 3. Automated Cache Refresh Job (Runs under Harness deployment Service Account)
-resource "google_bigquery_job" "refresh_sharepoint_metadata_cache" {
-  job_id   = "job_refresh_sharepoint_cache_${formatdate("YYYYMMDDhhmmss", timestamp())}"
-  project  = "nyl-pr-dbx-data-dev-01"
-  location = "us-east4"
-
-  query {
-    query          = "CALL BQ.REFRESH_EXTERNAL_METADATA_CACHE('`nyl-pr-dbx-data-dev-01.claims_bronze.obj_tbl_sharepoint_nylfinancetechnology`');"
-    use_legacy_sql = false
-  }
-
-  depends_on = [google_bigquery_table.obj_tbl_sharepoint_nylfinancetechnology]
-}
-
-# 4. Silver Population Job for SharePoint Nylfinancetechnology
 resource "google_bigquery_job" "populate_sharepoint_nylfinancetechnology_silver_table" {
   job_id   = "job_populate_sharepoint_nylfinancetechnology_silver_table_${formatdate("YYYYMMDDhhmmss", timestamp())}"
   project  = "nyl-pr-dbx-data-dev-01"
@@ -78,7 +112,7 @@ resource "google_bigquery_job" "populate_sharepoint_nylfinancetechnology_silver_
           , 'gemini'
         ) as extracted_content
         , current_timestamp() as process_ts
-      from `${google_bigquery_dataset.dtst_claims_bronze.dataset_id}.${google_bigquery_table.obj_tbl_sharepoint_nylfinancetechnology.table_id}` t_1
+      from `${google_bigquery_dataset.dtst_claims_bronze.dataset_id}.${module.claims_object_tables.object_table_ids["sharepoint_nylfinancetechnology"]}` t_1
       ;
     SQL
     use_legacy_sql = false
@@ -96,11 +130,11 @@ resource "google_bigquery_job" "populate_sharepoint_nylfinancetechnology_silver_
   depends_on = [
     google_bigquery_dataset.dtst_claims_bronze,
     google_bigquery_dataset.dtst_claims_silver,
-    google_bigquery_table.obj_tbl_sharepoint_nylfinancetechnology,
-    google_bigquery_job.refresh_sharepoint_metadata_cache,
+    module.claims_object_tables,
     module.bigquery_remote_function_gemini
   ]
 }
+
 
 
 
